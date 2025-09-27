@@ -4,7 +4,7 @@ from typing import Optional, Union, Callable
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest, LlmResponse
 from google.genai import types
-from agents.pfd_agent.utils.constant import FRONTEND_STATE_KEY
+from .utils.constant import FRONTEND_STATE_KEY
 
 def combine_after_model_callbacks(*callbacks) -> Callable:
     """组合多个 after_model_callback 函数为一个回调链
