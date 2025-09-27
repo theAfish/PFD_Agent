@@ -49,13 +49,14 @@ class QueryResult(TypedDict):
 def query_compounds(
     selectors: dict,
     *,
-    limit: int = 50,
+    limit: Optional[int] = None,
     db_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Query the ASE database with a list of selectors. 
     example: selectors = {
         "formula": "Si32",
         }
+    By default, there is no limit on the number of results returned.
     
     
     """
@@ -65,7 +66,7 @@ def query_compounds(
     formulas: set[str] = set()
     try:
         with connect(path) as db:
-            for row in db.select(**selectors):
+            for row in db.select(**selectors,limit=limit):
                 if row.id in seen_ids:
                     continue
                 seen_ids.add(row.id)
@@ -79,8 +80,8 @@ def query_compounds(
                         "key_value_pairs": dict(row.key_value_pairs or {}),
                     }
                 )
-                if len(results) >= limit:
-                    break
+                #if len(results) >= limit:
+                #    break
             return  QueryResult(
                 query=selectors,count=len(results),results=results,ids=seen_ids,formulas=formulas
             )
@@ -102,7 +103,7 @@ def export_entries(
     ids: List[int],
     *,
     output_dir: Path,
-    fmt: Literal["xyz", "cif", "traj"] = "xyz",
+    fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
     db_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Export selected ASE database entries to a single structure file with summary stats."""
@@ -117,7 +118,7 @@ def export_entries(
     formulas: set[str] = set()
     total_exported = 0
 
-    metadata_path = output_dir / "exported_metadata.jsonl"
+    metadata_path = output_dir / "exported_metadata.json"
     try:
         with metadata_path.open("w", encoding="utf-8") as meta_fp:
             with connect(path) as db:
@@ -125,11 +126,9 @@ def export_entries(
                     row = db.get(id=entry_id)
                     atoms = row.toatoms()
                     atoms_collection.append(atoms)
-
                     formula = row.get("formula") or atoms.get_chemical_formula(empirical=True)
                     if formula:
                         formulas.add(formula)
-
                     record = {
                         "id": entry_id,
                         "name": row.get("name"),

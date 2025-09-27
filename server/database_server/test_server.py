@@ -45,8 +45,9 @@ tool_calls=[
         "functionCall": {
             "name": "query_compounds",
             "args": {
-                "compound": "H2O",
-                "limit": 3
+                "selector": {"formula": "Si32"},
+                #"output_dir": "./exported_structures",
+                #"fmt": "extxyz"
             }
         }
     },
@@ -56,7 +57,7 @@ tool_calls=[
             "args": {
                 "ids": [1, 2, 3],
                 "output_dir": "./exported_structures",
-                "fmt": "xyz"
+                "fmt": "extxyz"
             }
         }
     }
