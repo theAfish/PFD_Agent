@@ -5,21 +5,21 @@ from google.adk.events import Event
 from google.genai import types
 # from opik.integrations.adk import track_adk_agent_recursive
 
-from .callback import init_before_agent_callback, before_model_callback, after_model_callback, \
+from .callback import init_before_agent, before_model_callback, after_model_callback, \
     enforce_single_tool_call
-from agents.pfd_agent.prompt import *
-from agents.pfd_agent.utils.llm_config import LlmConfig
+from .prompt import *
+from .utils.llm_config import LlmConfig
 
 
 class PFDAgent(Agent):
     def __init__(self, llm_config):
-        prepare_state_before_agent = init_before_agent_callback(llm_config)
+        prepare_state_before_agent = init_before_agent(llm_config)
         # ft_agent = init_ml_agent(llm_config)
         # ...
         
         super().__init__(name="pfd_agent",
                          model=llm_config.deepseek_chat,
-                         description="",
+                         #description="",
                          sub_agents=[
                              # ft_agent,
                              # ..._agent,
