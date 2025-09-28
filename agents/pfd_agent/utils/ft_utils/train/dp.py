@@ -18,7 +18,7 @@ from dflow.python import (
 )
 import numpy as np
 import dpdata  # type: ignore
-from .train import Train
+from agents.pfd_agent.utils.ft_utils.train import Train
 from dflow.utils import run_command
 
 
