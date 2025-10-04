@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, Tuple, Callable
 from dotenv import load_dotenv
 from ase.db import connect
 from ase.io import write,read
@@ -11,9 +11,8 @@ from pfd_agent_tool.init_mcp import mcp
 load_dotenv()
 
 # Globals configured at runtime
-DEFAULT_DB_PATH: Path = Path(os.environ.get("ASE_DB_PATH")).resolve()
+DEFAULT_DB_PATH: Optional[Path] = Path(os.environ.get("ASE_DB_PATH","")).resolve()
 
-logger = logging.getLogger("ase_db_server")
 
 def _resolve_db_path(db_path: Optional[Path]) -> Path:
     path = (db_path or DEFAULT_DB_PATH).expanduser().resolve()
@@ -26,6 +25,14 @@ class AtomsInfoResult(TypedDict):
     formulas: List[str]
     formulas_full: List[str]
     query_atoms_path: Union[Path, str]
+    
+class QueryResult(TypedDict):
+    """Result structure for model training"""
+    query: str
+    count: int
+    ids: List[int]
+    formulas: List[str]
+    results: List[Dict[str, Any]]
 
 @mcp.tool()
 def read_user_structure(
@@ -73,41 +80,108 @@ def read_user_structure(
             query_atoms_path=query_atoms_path
         )       
     except Exception as e:
-        logger.error("Error in atoms_info: %s", e)
+        logging.error("Error in atoms_info: %s", e)
         return AtomsInfoResult(
             formulas=[],formulas_full=[],query_atoms_path=""
         )        
 
-class QueryResult(TypedDict):
-    """Result structure for model training"""
-    query: str
-    count: int
-    ids: List[int]
-    formulas: List[str]
-    results: List[Dict[str, Any]]
+
 
 @mcp.tool()
 def query_compounds(
-    selectors: dict,
-    *,
+    selection: Union[dict,int,str,List[Union[str,Tuple]]]=None,
+    exclusive_elements: Union[str, List[str]] = None,
     limit: Optional[int] = None,
     db_path: Optional[Path] = None,
+    custom_args: Dict[str, Any] = {},
 ) -> Dict[str, Any]:
-    """Query the ASE database with a list of selectors. 
-    example: selectors = {
-        "formula": "Si32",
-        }
-    By default, there is no limit on the number of results returned.
-    
-    
+    """Query an ASE database for structures using flexible selectors and optional filters.
+
+    Overview:
+        Wraps `ase.db.connect(...).select(...)` and returns a compact summary of matching rows.
+        The database path is resolved from `db_path` or the `ASE_DB_PATH` environment variable.
+
+    Parameters:
+        selection (int | str | list[str | tuple] | None):
+            Selector(s) passed to ASE DB. Supported forms include:
+            - int: single row id, e.g. `123`.
+            - str: a single expression or a comma-separated list of expressions:
+                • no-key: 'Si' # Note: these would select any entry with 'Si' in formula, inclduing 'SiO2', etc.
+                • comparisons: 'key=value', 'key!=value', 'key<value', 'key<=value',
+                  'key>value', 'key>=value'
+                • combined: 'formula=Si32,pbc=True,energy<-1.0' or 'Si,O'
+            - list[str]: list of string expressions, e.g. `['formula=Si32', 'pbc=True']`.
+            - list[tuple]: list of `(key, op, value)` tuples, e.g. `[("energy", "<", -1.0)]`.
+
+        exclusive_elements (str | set[str] | None):
+            Optional post-filtering by chemical elements. Only entries whose structures within the chemical space specified can
+            be included in the results. examples: "Ba,Ti,O" or {"Ba", "Ti", "O"}.
+        
+        limit (int | None):
+            Maximum number of rows to return (applied during ASE selection).
+
+        db_path (Path | None):
+            Path to the ASE database. Defaults to `ASE_DB_PATH` if not provided.
+
+        Other key arguments that may be forwarded to `ase.db.Select` (common options):
+            - explain (bool): Print query plan.
+            - verbosity (int): 0, 1 or 2.
+            - offset (int): Skip initial rows.
+            - sort (str): e.g. 'energy' or '-energy' for descending.
+            - include_data (bool): False to skip reading data payloads.
+            - columns ('all' | list[str]): Restrict SQL columns for speed.
+
+    Returns:
+        QueryResult:
+            - query (str): Echo of the selection input (stringified).
+            - count (int): Number of unique rows returned.
+            - ids (List[int]): Unique row ids.
+            - formulas (List[str]): Unique empirical formulas (if available).
+            - results (List[Dict[str, Any]]): One dict per row with keys:
+                { 'id', 'name', 'formula', 'tags', 'key_value_pairs' }.
+
+    Examples (selection):
+        # 1) Single id
+        >>> query_compounds(123)
+
+        # 2) Single condition (string)
+        >>> query_compounds('Si') # matches any entry with 'Si' in formula
+        >>> query_compounds('formula=Si32')
+        >>> query_compounds('energy<-1.0')
+        >>> query_compounds('pbc=True')
+
+        # 3) Comma-separated conditions (string)
+        >>> query_compounds('Si,O') # matches any entry with 'Si' and 'O' in formula
+        >>> query_compounds('formula=Si32,pbc=True,energy<-1.0')
+
+        # 4) List of string conditions
+        >>> query_compounds(['formula=Si32', 'pbc=True', 'energy<-1.0'])
+
+        # 5) List of (key, op, value) tuples
+        >>> query_compounds([('energy', '<', -1.0), ('pbc', '=', True)])
+
+        # 6) Dict selector (advanced; forwarded to ASE)
+        >>> query_compounds({'calculator': 'deepmd'})
+
+
+    Notes:
+        - Use `sort='-energy'` and `limit=K` to quickly retrieve low/high energy candidates.
+        - Set `include_data=False` for faster metadata-only scans.
     """
     path = _resolve_db_path(db_path)
+    logging.info(f"Querying ASE database at {path} with selection: {selection}")
     results: List[Dict[str, Any]] = []
     seen_ids: set[int] = set()
     formulas: set[str] = set()
     try:
+        if exclusive_elements:
+            filter = _exclusive_elements(exclusive_elements)
+        else:
+            filter = None
+            
         with connect(path) as db:
-            for row in db.select(**selectors,limit=limit):
+            for row in db.select(selection,filter=filter,
+                                 limit=limit,**custom_args):
                 if row.id in seen_ids:
                     continue
                 seen_ids.add(row.id)
@@ -122,19 +196,19 @@ def query_compounds(
                     }
                 )
             return  QueryResult(
-                query=selectors,count=len(results),results=results,ids=seen_ids,formulas=formulas
+                query=selection,count=len(results),results=results,ids=seen_ids,formulas=formulas
             )
     except Exception as e:
-        logger.error("Error querying database: %s", e)
+        logging.error("Error querying database: %s", e)
         return QueryResult(
-            query=selectors,count=0,results=[],ids=[],formulas=[]
+            query=selection,count=0,results=[],ids=[],formulas=[]
         )
 
 
 class ExportResult(TypedDict):
     """Result structure for export_entries"""
-    output_file: str
-    metadata_file: str
+    output_file: Path
+    metadata_file: Path
     counts: Dict[str, int]
 
 @mcp.tool()
@@ -189,14 +263,20 @@ def export_entries(
         }
 
         return ExportResult(
-            output_file=combined_path.as_uri(),
-            metadata_file=metadata_path.as_uri(),
+            output_file=combined_path,
+            metadata_file=metadata_path,
             counts=counts,
         )
     except Exception as e:
-        logger.error("Error exporting entries: %s", e)
+        logging.error("Error exporting entries: %s", e)
         return ExportResult(
-            output_file="",
-            metadata_file="",
+            output_file=Path(""),
+            metadata_file=Path(""),
             counts={},
         )
+
+def _exclusive_elements(elements:Union[str, List[str]]) -> Callable:
+    """Return True if the row's structure contains only elements in the allowed set."""
+    if isinstance(elements, str):
+        elements = elements.split(',')
+    return lambda row: set(row.symbols) <= set(elements)
