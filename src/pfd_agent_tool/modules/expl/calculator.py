@@ -47,8 +47,7 @@ class MattersimCalculatorWrapper(CalculatorWrapper):
             raise ImportError("MatterSim not available. Install with: pip install mattersim") from e
     
 
-@CalculatorWrapper.register('deepmd')
-@CalculatorWrapper.register('dp')
+@CalculatorWrapper.register('dpa')
 class DPCalculatorWrapper(CalculatorWrapper):
     """DeepMD calculator wrapper."""
     def create(self, model_path:Union[str,Path], **kwargs) -> Calculator:
