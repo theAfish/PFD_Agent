@@ -3,12 +3,11 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, Tuple, Callable
-from dotenv import load_dotenv
 from ase.db import connect
 from ase.io import write,read
 
 from pfd_agent_tool.init_mcp import mcp
-load_dotenv()
+from pfd_agent_tool.modules.util.common import generate_work_path
 
 # Globals configured at runtime
 DEFAULT_DB_PATH: Optional[Path] = Path(os.environ.get("ASE_DB_PATH","")).resolve()
@@ -215,7 +214,6 @@ class ExportResult(TypedDict):
 def export_entries(
     ids: List[int],
     *,
-    output_dir: Path,
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
     db_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
@@ -224,14 +222,15 @@ def export_entries(
         raise ValueError("ids must contain at least one entry id")
 
     path = _resolve_db_path(db_path)
-    output_dir = output_dir.expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    work_path=Path(generate_work_path())
+    work_path = work_path.expanduser().resolve()
+    work_path.mkdir(parents=True, exist_ok=True)
 
     atoms_collection: List[Any] = []
     formulas: set[str] = set()
     total_exported = 0
 
-    metadata_path = output_dir / "exported_metadata.json"
+    metadata_path = work_path / "exported_metadata.json"
     try:
         with metadata_path.open("w", encoding="utf-8") as meta_fp:
             with connect(path) as db:
@@ -252,7 +251,7 @@ def export_entries(
                     total_exported += 1
 
         combined_filename = f"exported_structures.{fmt}"
-        combined_path = output_dir / combined_filename
+        combined_path = work_path / combined_filename
 
         payload = atoms_collection[0] if len(atoms_collection) == 1 else atoms_collection
         write(combined_path, payload, format=fmt)

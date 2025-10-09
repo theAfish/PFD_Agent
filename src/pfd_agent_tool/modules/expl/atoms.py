@@ -1,20 +1,10 @@
-import json
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
-from dotenv import load_dotenv
-from ase import Atoms
 from ase.io import write,read
-import numpy as np
-
 from .filter import _h_filter_cpu, _h_filter_gpu
-
 from pfd_agent_tool.init_mcp import mcp
-load_dotenv()
-
-import logging
-
+from pfd_agent_tool.modules.util.common import generate_work_path
 
 class FilterByEntropyResult(TypedDict):
     select_atoms: Path
@@ -129,8 +119,10 @@ def filter_by_entropy(
             logging.info("Using CPU entropy (torch not available)")
             select_atoms, result = _h_filter_cpu(iter_confs,reference,chunk_size=chunk_size,max_sel=max_sel,
                                  k=k,cutoff=cutoff,batch_size=batch_size,h=h,**kwargs)
-        
-        select_atoms_path = Path("selected.extxyz")
+        work_path=Path(generate_work_path())
+        work_path=work_path.expanduser().resolve()
+        work_path.mkdir(parents=True,exist_ok=True)
+        select_atoms_path = work_path / "selected.extxyz"
         write(select_atoms_path, select_atoms)
         
         return FilterByEntropyResult(

@@ -3,6 +3,7 @@ from typing import (
     List, 
     Dict, 
     TypedDict,
+    Any,
 )
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ from ase.constraints import ExpCellFilter
 from ase import units
 from .calculator import CalculatorWrapper
 from pfd_agent_tool.init_mcp import mcp
+from pfd_agent_tool.modules.util.common import generate_work_path
 
 import logging
 
@@ -34,15 +36,87 @@ class OptimizationResult(TypedDict):
 
 
 @mcp.tool()
-def list_calculators() -> List[str]:
-    """List all available calculator types. You should check the required input parameters for initializing each calculator type.
-    Available calculator types are:
-    - 'mattersim': MatterSim calculator for biomolecular systems. Requires `model_path` to the MatterSim model checkpoint.
-    - 'deepmd' or 'dpa': DeepMD calculator for general materials. Requires `model_path` to the DeepMD model file (.pb or .pt). It might also need `head` parameter to specify the application domain. Only required for multi-head models.
+def list_calculators() -> List[Dict[str, Any]]:
+    """List available calculators and their MD input requirements.
+
+    This reflects the concrete implementations in `calculator.py` and is intended to
+    guide correct usage of `optimize_structure` and `run_molecular_dynamics`. Please follow the examples provided.
+
+    Returns:
+      A list of dicts, one per registered calculator, with:
+        - name: calculator key to use as model_style
+        - description: short summary (aligned to wrapper implementation)
+        - requires_model_path: whether `model_path` must be provided
+        - required_init_params: required kwargs for wrapper.create(...)
+        - optional_init_params: commonly used optional kwargs for wrapper.create(...)
+        - md_supported: whether suitable for MD in this toolkit
+        - notes: extra hints
+        - example: minimal example for run_molecular_dynamics
     """
-    return CalculatorWrapper.get_all_calculator()
+    # Specs derived from src/pfd_agent_tool/modules/expl/calculator.py wrappers
+    specs: Dict[str, Dict[str, Any]] = {
+        "dpa": {
+            "description": "DeepMD (deepmd-kit) ASE calculator wrapper.",
+            "requires_model_path": True,
+            "required_init_params": ["model_path"],
+            "optional_init_params": ["head"],
+            "md_supported": True,
+            "notes": "Use a DeepMD model file path (.pb). Additional DP kwargs may be passed if supported by deepmd-kit.",
+            "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='dpa', model_path=Path('.tests/dpa/DPA2_medium_28_10M_rc0.pt'),head='MP_traj_v024_alldata_mixu')",
+        },
+        "mattersim": {
+            "description": "MatterSim force field calculator wrapper.",
+            "requires_model_path": True,
+            "required_init_params": ["model_path"],  # from_checkpoint(load_path=model_path)
+            "optional_init_params": [],
+            "md_supported": True,
+            "notes": "Requires mattersim installed. Uses MatterSimCalculator.from_checkpoint(load_path=...).",
+            "example": "run_molecular_dynamics(initial_structure=Path('protein.pdb'), stages=stages, model_style='mattersim', model_path=Path('mattersim.ckpt'))",
+        },
+        "mace": {
+            "description": "MACE ASE calculator wrapper.",
+            "requires_model_path": True,
+            "required_init_params": ["model_path"],  # passed to MACECalculator(model_paths=...)
+            "optional_init_params": [],
+            "md_supported": True,
+            "notes": "Provide a trained MACE model path; forwarded as model_paths.",
+            "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='mace', model_path=Path('mace.model'))",
+        },
+        "emt": {
+            "description": "EMT toy calculator (no model file).",
+            "requires_model_path": False,
+            "required_init_params": [],
+            "optional_init_params": [],
+            "md_supported": True,
+            "notes": "Good for smoke tests; no model_path needed.",
+            "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='emt')",
+        },
+        "lj": {
+            "description": "Lennard-Jones calculator (ASE).",
+            "requires_model_path": False,
+            "required_init_params": [],
+            "optional_init_params": ["epsilon", "sigma", "rc", "ro"],
+            "md_supported": True,
+            "notes": "Parameters map to ase.calculators.lj.LennardJones.",
+            "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='lj', epsilon=0.0103, sigma=3.4)",
+        },
+    }
 
-
+    available = CalculatorWrapper.get_all_calculator()
+    result: List[Dict[str, Any]] = []
+    for name in available:
+        spec = specs.get(name, {})
+        result.append({
+            "name": name,
+            "description": spec.get("description", ""),
+            "requires_model_path": spec.get("requires_model_path", False),
+            "required_init_params": spec.get("required_init_params", []),
+            "optional_init_params": spec.get("optional_init_params", []),
+            "md_supported": spec.get("md_supported", True),
+            "notes": spec.get("notes", ""),
+            "example": spec.get("example", ""),
+        })
+    return result
 
 @mcp.tool()
 def optimize_structure( 
@@ -102,8 +176,12 @@ def optimize_structure(
         else:
             optimizer = BFGS(atoms, trajectory=traj_file)
             optimizer.run(fmax=force_tolerance, steps=max_iterations)
+            
+        work_path=Path(generate_work_path())
+        work_path = work_path.expanduser().resolve()
+        work_path.mkdir(parents=True, exist_ok=True)
 
-        output_file = f"{base_name}_optimized.cif"
+        output_file = work_path / f"{base_name}_optimized.cif"
         write(output_file, atoms)
         final_energy = float(atoms.get_potential_energy())
 
@@ -255,7 +333,7 @@ def _run_md_stage(atoms, stage, save_interval_steps, traj_file, seed, stage_id):
 
     return atoms
 
-def _run_md_pipeline(atoms, stages, save_interval_steps=100, traj_prefix='traj', seed=None):
+def _run_md_pipeline(atoms, stages, save_interval_steps=100, traj_prefix='traj', traj_dir='trajs_files', seed=42):
     """Run multiple MD stages sequentially"""
     for i, stage in enumerate(stages):
         mode = stage['mode']
@@ -265,7 +343,7 @@ def _run_md_pipeline(atoms, stages, save_interval_steps=100, traj_prefix='traj',
         tag = f"stage{i+1}_{mode}_{T}K"
         if P != 'NA':
             tag += f"_{P}GPa"
-        traj_file = os.path.join("trajs_files", f"{traj_prefix}_{tag}.extxyz")
+        traj_file = os.path.join(traj_dir, f"{traj_prefix}_{tag}.extxyz")
 
         atoms = _run_md_stage(
             atoms=atoms,
@@ -288,7 +366,6 @@ def run_molecular_dynamics(
     traj_prefix: str = 'traj',
     seed: Optional[int] = 42,
     **kwargs
-    #head: Optional[str] = "Omat24",
 ) -> Dict:
     """
     [Modified from AI4S-agent-tools/servers/DPACalculator] Run a multi-stage molecular dynamics simulation using Deep Potential. 
@@ -318,8 +395,19 @@ def run_molecular_dynamics(
         save_interval_steps (int): Interval (in MD steps) to save trajectory frames (default: 100).
         traj_prefix (str): Prefix for trajectory output files (default: 'traj').
         seed (int, optional): Random seed for initializing velocities (default: 42).
-        **kwargs: Additional keyword arguments passed to the calculator initialization. For example, for DeepMD calculator, you might specify `head` to select the model head for multi-head models.
-            - head (str, optional): Model head to use for multi-head DeepMD models (e.g., "Omat24", "Omat31"). Default is None.
+        **kwargs: Optional calculator initialization parameters passed directly to the
+            calculator wrapper. For pretrained DPA multi-head models, include a top-level
+            argument head (e.g., head="Omat24"). All optional parameters MUST be passed
+            directly as top-level arguments to this tool. Do NOT send a nested object named
+            "kwargs".
+
+    Agent guidance (critical):
+                - When using pretrained DPA models that require a "head", pass it as a direct
+                    top-level argument (captured by **kwargs):
+                        Correct:  head="MP_traj_v024_alldata_mixu"
+                        Incorrect: kwargs={"head": "MP_traj_v024_alldata_mixu"}
+        - NEVER include a literal argument named "kwargs" in tool calls. Provide all
+          optional fields as top-level arguments (they will be forwarded to the calculator).
 
     Returns: A dictionary containing:
             - final_structure (Path): Final atomic structure after all stages.
@@ -362,13 +450,25 @@ def run_molecular_dynamics(
     """
 
     # Create output directories
-    os.makedirs("trajs_files", exist_ok=True)
-    log_file = Path("md_simulation.log")
+    work_path=Path(generate_work_path())
+    work_path = work_path.expanduser().resolve()
+    work_path.mkdir(parents=True, exist_ok=True)
+    
+    traj_dir = work_path / "trajs_files"
+    traj_dir.mkdir(parents=True, exist_ok=True)
+    log_file = work_path / "md_simulation.log"
     
     # Read initial structure
     atoms = read(initial_structure)
     
     # Setup calculator
+    # Flatten an accidentally nested 'kwargs' dict sent by clients; keep robust and log
+    if "kwargs" in kwargs and isinstance(kwargs["kwargs"], dict):
+        logging.warning("run_molecular_dynamics received a nested 'kwargs' object; flattening it. Do not send 'kwargs' explicitly.")
+        inner = kwargs.pop("kwargs")
+        # merge inner into kwargs, without overwriting explicitly provided top-level keys
+        for k, v in inner.items():
+            kwargs.setdefault(k, v)
     calc=CalculatorWrapper.get_calculator(model_style)
     calc=calc().create(model_path=model_path, **kwargs)
     atoms.calc = calc
@@ -379,19 +479,17 @@ def run_molecular_dynamics(
         stages=stages,
         save_interval_steps=save_interval_steps,
         traj_prefix=traj_prefix,
+        traj_dir=str(traj_dir),
         seed=seed
     )
     
     # Save final structure
-    final_structure = Path("final_structure.xyz")
+    final_structure = work_path / "final_structure.xyz"
     write(final_structure, final_atoms)
-    
-    # Collect trajectory files
-    trajectory_dir = Path("trajs_files")
     
     result = {
         "final_structure": final_structure,
-        "trajectory_dir": trajectory_dir,
+        "trajectory_dir": traj_dir,
         "log_file": log_file
     }
     
