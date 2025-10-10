@@ -9,6 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
+.env
 input_example/
 output/
 uploaded_files/
