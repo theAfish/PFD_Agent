@@ -6,10 +6,16 @@ dist/
 wheels/
 *.egg-info
 
-# Virtual environments
-.venv
-
+# Environments
 .env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
 input_example/
 output/
 uploaded_files/
