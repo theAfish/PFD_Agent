@@ -17,7 +17,6 @@ import dpdata  # type: ignore
 from .train import Train
 from dflow.utils import run_command
 from .prompt import DPA2_CONFIG_TEMPLATE
-from typing import cast
 
 
 # ...existing code...

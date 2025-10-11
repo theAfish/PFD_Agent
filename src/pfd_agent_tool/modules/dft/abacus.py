@@ -147,7 +147,7 @@ def abacus_prepare_batch(
         for abacus_inputs_dir in abacus_inputs_dir_ls:
             is_valid, msg = check_abacus_inputs(abacus_inputs_dir)
             if not is_valid:
-                raise RuntimeError(f"Invalid ABACUS input files: {msg}")
+                raise RuntimeError(f"Invalid ABACUS input files at {abacus_inputs_dir}: {msg}")
         return {"abacus_inputs_dir_list": abacus_inputs_dir_ls,
                 "input_content_list": input_content_ls}
     except Exception as e:
