@@ -6,7 +6,7 @@ from typing import List
 from importlib.metadata import version
 __version__ = version("abacusagent")
 
-AVAILABLE_MODULES = ["db", "expl", "db", "train"]
+AVAILABLE_MODULES = ["db", "expl", "dft", "train"]
 
 
 def load_tools(screen_modules: List[str] = []):

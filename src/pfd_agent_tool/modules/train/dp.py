@@ -347,7 +347,7 @@ class DPTrain(Train):
         fplog.write("#=================== freeze std err ===================\n")
         fplog.write(err)
         clean_before_quit()
-        return Path(self.model_file),Path(self.log_file),err
+        return Path(self.model_file).resolve(),Path(self.log_file).resolve(),err
         
     def test(
         self
