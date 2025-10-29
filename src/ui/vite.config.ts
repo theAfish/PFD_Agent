@@ -20,7 +20,7 @@ try {
     // 合并默认主机和用户定义的额外主机
     const userHosts = config.server.allowedHosts || []
     const allHosts = [...new Set([...defaultHosts, ...userHosts])]
-    
+
     serverConfig = {
       port: config.server.port || 50002,
       allowedHosts: allHosts
@@ -39,7 +39,7 @@ export default defineConfig({
   },
   server: {
     port: parseInt(process.env.FRONTEND_PORT || String(serverConfig.port)),
-    allowedHosts: serverConfig.allowedHosts,
+    allowedHosts: true,
     host: '0.0.0.0',
     proxy: {
       '/api': {

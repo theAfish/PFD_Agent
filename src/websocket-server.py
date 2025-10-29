@@ -311,12 +311,17 @@ class SessionManager:
         # 为消息添加唯一标识符
         if 'id' not in message:
             message['id'] = f"{message.get('type', 'unknown')}_{datetime.now().timestamp()}"
-        
+
         try:
+            # 检查连接状态
+            if context.websocket.client_state.name != "CONNECTED":
+                logger.warning(f"WebSocket 未连接,无法发送消息: {message.get('type')}")
+                return
             await context.websocket.send_json(message)
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
-            self.disconnect_client(context.websocket)
+            # 不要立即断开连接,可能只是临时错误
+            # self.disconnect_client(context.websocket)
     
     async def process_message(
         self,

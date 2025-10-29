@@ -13,24 +13,24 @@ from .prompt import (
 )
 from .utils.llm_config import LlmConfig
 from .ft_agent.agent import init_ft_agent
+from .expl_agent.agent import init_expl_agent
 #from .db_agent.agent import init_db_agent
-#from .expl_agent.agent import init_expl_agent
 #from .stru_agent.agent import init_stru_agent
 
 class PFDAgent(Agent):
     def __init__(self, llm_config):
         # prepare_state_before_agent = init_before_agent(llm_config)
         ft_agent = init_ft_agent(llm_config)
+        expl_agent = init_expl_agent(llm_config)
         #db_agent = init_db_agent(llm_config)
-        #expl_agent = init_expl_agent(llm_config)
         #stru_agent = init_stru_agent(llm_config)
         # ...
         super().__init__(name="pfd_agent",
-                         model=llm_config.gpt_4o,
+                         model=llm_config.deepseek_chat,
                          sub_agents=[
                             ft_agent,
+                            expl_agent,
                             # db_agent,
-                            # expl_agent,
                             # stru_agent,
                             # ..._agent,
                          ],

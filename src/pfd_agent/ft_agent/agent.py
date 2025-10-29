@@ -27,7 +27,7 @@ from ..tools.train import dp
 def init_ft_agent(config):
     ft_agent = LlmAgent(
         name = FTAGENT_NAME,
-        model= config.gpt_4o,
+        model= config.deepseek_chat,
         instruction = FTAEGNTInstruction,
         description = FTAEGNTDescription,
         tools=[

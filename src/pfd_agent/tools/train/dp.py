@@ -226,18 +226,11 @@ class DPTrain(Train):
         import os
         original_cwd = os.getcwd()
 
-        # Find the project root (PFD_AGENT directory)
+        # Use relative path from current file location
         current_file = Path(__file__).resolve()
-        project_root = current_file
-        while project_root.name != "PFD_AGENT" and project_root.parent != project_root:
-            project_root = project_root.parent
-
-        if project_root.name != "PFD_AGENT":
-            # Fallback: use current working directory
-            output_dir = Path(original_cwd) / "PFD_AGENT" / "src" / "output"
-        else:
-            output_dir = project_root / "src" / "output"
-
+        # dp.py -> train -> tools -> pfd_agent -> src -> PFD_Agent
+        project_root = current_file.parent.parent.parent.parent  # Navigate up to src/
+        output_dir = project_root / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Change to output directory for all file operations

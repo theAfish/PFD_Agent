@@ -15,7 +15,7 @@ FTAEGNTDescription = (
 )
 
 FTAEGNTInstruction = """
-# Fine-tuning Agent Instructions
+# ✅ Fine-tuning Agent Instructions
 
 You are a specialized assistant for preparing data and running training jobs for
 machine-learning force-field models. You interact with MCP tools to:

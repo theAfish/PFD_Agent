@@ -28,8 +28,8 @@ MODEL_MAPPING = {
     # ("gemini", "gemini2.5-pro"): "gemini/gemini-2.5-pro-preview-03-25",
     # ("deepseek", "deepseek-reasoner"): "deepseek/deepseek-reasoner",
     ("deepseek", "deepseek-chat"): "deepseek/deepseek-chat",
-    ("dashscope", "qwen-plus"): "dashscope/qwen-plus",
-    ("anthropic", "kimi-k2-0711-preview"): "anthropic/kimi-k2-0711-preview",
+    ("openai", "qwen-plus"): "openai/qwen-plus",
+    ("anthropic", "kimi-k2-0905-preview"): "anthropic/kimi-k2-0905-preview",
 }
 
 DEFAULT_MODEL = "deepseek/deepseek-chat"
@@ -56,7 +56,7 @@ class LLMConfig(object):
         gpt_provider = "azure"
         litellm_provider = "litellm_proxy"
         deepseek_provider = "deepseek"
-        ali_provider = "dashscope"
+        openai_provider = "openai"
 
         qwen_plus = "qwen-plus"
         gpt_4o = "gpt-4o"
@@ -66,7 +66,8 @@ class LLMConfig(object):
         gemini_2_5_pro = "gemini-2.5-pro"
         claude_sonnet_4 = "claude-sonnet-4"
         deepseek_chat = "deepseek-chat"
-        kimi_k2 = "kimi-k2-0711-preview"
+        kimi_k2 = "kimi-k2-0905-preview"
+        qwen_plus = "qwen-plus"
 
         # Helper to init any provider model
         def _init_model(provider_key: str, model_name: str):
@@ -84,9 +85,9 @@ class LLMConfig(object):
         self.gemini_2_5_pro = _init_model(litellm_provider, gemini_2_5_pro)
         self.claude_sonnet_4 = _init_model(litellm_provider, claude_sonnet_4)
         self.deepseek_chat = _init_model(deepseek_provider, deepseek_chat)
-        self.qwen_plus = _init_model(ali_provider, qwen_plus)
         self.kimi_k2 = _init_model(anthropic_provider, kimi_k2)
-
+        self.qwen_plus = _init_model(openai_provider, qwen_plus)
+        
         self._initialized = True
         
     @classmethod

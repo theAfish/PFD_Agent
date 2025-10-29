@@ -411,6 +411,7 @@ def training(
                      valid_data=valid_data_path,
                      test_data=test_data_path)
         runner.validate()
+        
         model, log, message = runner.run()
         logging.info("Training completed!")
         test_metrics = None
@@ -419,6 +420,6 @@ def training(
         return TrainingResult(model=model, log=log, message=message, test_metrics=test_metrics)
     except Exception as e:
         logging.exception("Training failed")
-        return TrainingResult(model=Path("PFD_AGENT/src/output"),
-                              log=Path("PFD_AGENT/src/output"),
+        return TrainingResult(model,
+                              log,
                               message=f"Training failed: {e}", test_metrics=None)
