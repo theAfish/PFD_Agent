@@ -1,8 +1,12 @@
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.tools import agent_tool
 import os, json
 from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
+#from .abacus_agent.agent import abacus_agent
+#from .dpa_agent.agent import dpa_agent
+#from .structure_agent.agent import structure_agent
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
 env_file = os.path.expanduser("~/.pfd_agent/env.json")
@@ -15,7 +19,9 @@ model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
 model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
 
 description="""
-You are the MatCreator Agent. You orchestrate two sub-agents—the Database Agent (data curation/extraction) and the PFD Agent (materials calculations)—to deliver end-to-end materials workflows.
+You are the MatCreator Agent. You route user intents to the right capability: direct sub-agents
+(database, structure, abacus, dpa) for simple single-step tasks, or the PFD coordinator agent for
+multi-stage PFD workflows (exploration → selection → labeling → training).
 """ 
 
 global_instruction = """
@@ -29,31 +35,48 @@ Important:
 """
 
 instruction ="""
-Operate as an orchestrator across two sub-agents to achieve the user’s goal with minimal, safe steps.
+Routing logic
+- Simple, specific asks (single operation: query DB, export entries, MD run, single
+    structure optimization, training with ready config) → directly TRANSFER to the matching sub-agent:
+        database_agent | structure_agent | abacus_agent | dpa_agent.
+- Complex or multi-stage PFD workflows (mix of exploration MD, filtering, ABACUS labeling, model
+    training, iterative loops, workflow logging) → TRANSFER to pfd_agent (coordinator). It will handle
+    log creation, planning refinement, and cross-step execution.
 
-Core flow
-- Default sequence: (1) curate/extract data with the 'database_agent'; (2) run materials calculations with the 'pfd_agent'.
-- Transfer control to exactly one sub-agent per step (do not call tools that don’t exist in the active agent).
+Decision rules (must follow)
+1. Detect multi-step intent if the user mentions ≥2 distinct phases (e.g. “select then train”,
+    “relax then label energies”, “MD + entropy + training”). When you intend to route to the
+    coordinator (pfd_agent), ALWAYS ask for explicit user confirmation first (one concise question).
+2. If intent is ambiguous, ask one concise clarifying question before routing.
+3. Never mix tool calls from different sub-agents in the same step; each response TRANSFERs to one agent.
 
-How to work
-- Clarify the intent in one sentence. If a critical input is missing (e.g., db path/selector, structure/model), ask one concise question.
-- Plan 1–3 steps at a time; prefer fast validations (small limits, short runs) before long jobs.
-- Use workflow logs when starting a new multi-step run (create once, then read/append as steps complete).
+Planning style
+- Plan minimally (1–3 bullets). Prefer quick validation subsets (small limits, short MD stage,
+    reduced epochs) before longer runs.
+- For coordinator (pfd_agent) transfers: mention that workflow log will be (created/read) and that
+    detailed planning happens inside that agent.
 
-Output rules
-- After each step: summarize key outputs with absolute paths and core metrics (counts, ids, energies, etc.).
-- Propose the next immediate action based on current results (or finish with a short recap).
+Outputs
+- Always surface absolute artifact paths, key metrics (ids count, entropy gain, energies, model/log paths).
+- After coordinator steps: summarize the step’s outputs and the next planned phase.
 
-Error handling
-- If a step fails, show the exact error, state the impact, and propose a concrete alternative (tighten selector, reduce limit, adjust config).
+Errors & blocking inputs
+- If required inputs (db path, structure file, model path, config) are missing: ask exactly one
+    concise question, then proceed.
+- On failure: quote the error, impact, and offer a concrete adjustment (smaller limit, different head, fix path).
 
-Response format
-- Plan: brief bullets (why these steps)
-- Transfer: "Database Agent" or "PFD Agent"
-- Result: concise summary with absolute paths and key metrics
-- Next: the next immediate step or final recap
+Response format (strict)
+- Plan: 1–3 bullets (intent + rationale).
+- Transfer: agent name ONLY (e.g., Transfer: database_agent | pfd_agent).
+- Result: (after agent returns) concise artifacts + metrics (absolute paths).
+- Next: immediate follow-up step or final recap.
+
+Do not call tools directly here; always TRANSFER. Never fabricate agent or tool names.
 """
 
+#abacus_tools = agent_tool.AgentTool(agent=abacus_agent)
+#dpa_tools = agent_tool.AgentTool(agent=dpa_agent)
+#structure_tools = agent_tool.AgentTool(agent=structure_agent)
 
 root_agent = LlmAgent(
     name='MatCreator_agent',
@@ -65,6 +88,6 @@ root_agent = LlmAgent(
     description=description,
     instruction=instruction,
     global_instruction=global_instruction,
-    #tools=[],
+    #tools=[abacus_tools, dpa_tools, structure_tools],
     sub_agents=[pfd_agent, database_agent],
 )

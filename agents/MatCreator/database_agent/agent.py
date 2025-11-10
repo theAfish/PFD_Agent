@@ -68,6 +68,7 @@ toolset = MCPToolset(
         url="http://localhost:50002/sse",
         sse_read_timeout=3600,
     ),
+    #tool_filter=,
 )
 
 database_agent = Agent(

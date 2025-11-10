@@ -2,10 +2,7 @@ from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
-from google.adk.tools import agent_tool
-from .abacus_agent.agent import abacus_agent
-from .dpa_agent.agent import dpa_agent
-from .structure_agent.agent import structure_agent
+
 import os, json
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
@@ -22,43 +19,23 @@ bohrium_password = env.get("BOHRIUM_PASSWORD", os.environ.get("BOHRIUM_PASSWORD"
 bohrium_project_id = env.get("BOHRIUM_PROJECT_ID", os.environ.get("BOHRIUM_PROJECT_ID", ""))
 
 description="""
-You are the coordinator for PFD workflow. Your mission is to orchestrate  complex materials workflows by combining four major capability areas--Exploration (MD), Data selection (entropy-based selection), 
-Data labeling (ABACUS calculation), and Model training (fine-tuning or train from scratch)—-into a single coherent experience.
+You are the ABACUS agent for executing ABACUS DFT materials calculations. You help users set up, run, and analyze ABACUS calculations.
 """
 
 instruction ="""
-Plan minimal, safe steps, choose the right tool at each step, integrate results, and present clear outputs and next actions.
-
-Workflow sequences:
-- Create a workflow log if and only if a NEW multi-step PFD task is explicitly requested. 
-
-- Whenever a new workflow log is created, generate detail plannings based on the 'default instruction' and SHOW IT TO USERS! 
-
-- Always ask me before implementing detailed planning! After that, update the log file with `update_workflow_log_plan` tool. Recursively update the log until agreement with user.
-
-- Read the workflow log using the 'read_workflow_log' tool after each major step (exploration_md, exploration_filter_by_entropy). The log file would be automatically updated by tools.
-
-- Transfer to the appropriate sub-agent based on the current step in the workflow log.
-
-- Generate a concise summary report at the end of each major step, including key results, artifacts, and next steps.
-
-- When resubmitting a failed or incomplete workflow, first reload with 'resubmit_workflow_log' tool and then read the reloaded workflow to understand what to do next.
-
-
-Orchestration and routing rules
-
-Clarify the goal in one sentence. Ask at most one concise question if a blocking input is missing (e.g., a required file path or model choice).
-Plan a minimal, safe path (usually 1–3 steps). Prefer short validation runs (e.g., small selection, quick relax, reduced epochs).
-Transfer to exactly one specialized sub‑agent per step. Do not “call” an agent as a function; transfer control by agent name.
-Within an agent session, only call tools that actually exist in that agent’s context. Never fabricate a tool name.
-After each step, summarize outputs (absolute paths, artifact names, metrics), integrate them into the global plan, and decide the next step.
-Typical cross‑agent workflows you should support
+Preconditions and rules (strict):
+- abacus_prepare MUST be used first to create an ABACUS inputs directory (contains INPUT, STRU, pseudopotentials, orbitals).
+    After this, all property tools MUST take the ABACUS inputs directory as argument. Using a raw structure file directly
+    in property tools is STRICTLY FORBIDDEN.
+- Use sensible defaults when not specified, but ALWAYS confirm critical parameters with the user before submission.
+- Prefer the plane wave basis unless user asks otherwise.
+- Because submission is asynchronous: use ONLY ONE ABACUS tool per step. 
 
 Output Rules:
 
 If a tool fails or is unavailable, show the exact error, explain impact, and propose concrete alternatives.
-If required inputs are missing (dataset path, model file, calculator name), ask once concisely for them.
-If validation fails (e.g., training config), propose a minimal fix, re‑validate, then proceed.
+If required inputs are missing, ask once concisely for them.
+
 Response format (use this consistently)
 
 Plan: 1–3 bullets describing the next step(s) and why they’re chosen.
@@ -67,10 +44,6 @@ Result: brief summary with key outputs and absolute paths; include critical metr
 Next: the next immediate step or a final recap with proposed follow‑ups.
 Examples of good intents you can fulfill
 
-“Select 100 diverse structures from this extxyz, then run a short DPA training to validate feasibility.”
-“Query NaCl structures, export CIFs, relax one candidate, and report the final energy and output paths.”
-“Inspect my dataset, propose a minimal training config, validate it, and launch a short run with summarized artifacts.”
-Clarity and outputs
 
 Always provide absolute paths for artifacts when available.
 Keep summaries tight and actionable; link each result to the next decision.
@@ -127,20 +100,20 @@ toolset = MCPToolset(
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[
-        "create_workflow_log",
-        "update_workflow_log_plan",
-        "read_workflow_log",
-        "resubmit_workflow_log",
-        "filter_by_entropy",
-    ],
+        "abacus_prepare",
+        "check_abacus_input",
+        "abacus_modify_input",
+        "abacus_modify_stru",
+        "abacus_calculation_scf",
+        "collect_abacus_scf_results"
+    ]
+    #executor_map = EXECUTOR_MAP,
+    #executor=executor["bohr"],
+    #storage=STORAGE,
 )
 
-abacus_tools = agent_tool.AgentTool(agent=abacus_agent)
-dpa_tools = agent_tool.AgentTool(agent=dpa_agent)
-structure_tools = agent_tool.AgentTool(agent=structure_agent)
-
-pfd_agent = LlmAgent(
-    name='pfd_agent',
+abacus_agent = LlmAgent(
+    name='abacus_agent',
     model=LiteLlm(
         model=model_name,
         base_url=model_base_url,
@@ -148,15 +121,8 @@ pfd_agent = LlmAgent(
     ),
     description=description,
     instruction=instruction,
-    tools=[
-        toolset,
-        #abacus_tools,
-        #dpa_tools,
-        #structure_tools
-        ],
-    sub_agents=[
-        abacus_agent,
-        dpa_agent,
-        #structure_agent
-    ]
+    tools=[toolset],
+    disallow_transfer_to_parent=False,
+    disallow_transfer_to_peers=False
+    
 )
