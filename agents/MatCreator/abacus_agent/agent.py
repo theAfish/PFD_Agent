@@ -2,7 +2,7 @@ from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
-
+from google.genai import types
 import os, json
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
@@ -23,32 +23,30 @@ You are the ABACUS agent for executing ABACUS DFT materials calculations. You he
 """
 
 instruction ="""
-Preconditions and rules (strict):
-- abacus_prepare MUST be used first to create an ABACUS inputs directory (contains INPUT, STRU, pseudopotentials, orbitals).
-    After this, all property tools MUST take the ABACUS inputs directory as argument. Using a raw structure file directly
-    in property tools is STRICTLY FORBIDDEN.
-- Use sensible defaults when not specified, but ALWAYS confirm critical parameters with the user before submission.
-- Prefer the plane wave basis unless user asks otherwise.
-- Because submission is asynchronous: use ONLY ONE ABACUS tool per step. 
+Operate ABACUS safely with minimal steps and strict validation.
 
-Output Rules:
+Must‑follow sequence
+- abacus_prepare first to create an inputs directory (INPUT, STRU, pseudopotentials, orbitals).
+- check_abacus_input to validate inputs BEFORE any calculation submission.
+- Then run exactly ONE property tool per step (submission is asynchronous).
+- collect_abacus_*_results AFTER the corresponding calculation completes.
+- When you finish your task, ALWAYS end with: "Task complete. Transferring control back to root_agent." Then call transfer_to_agent('root_agent').
 
-If a tool fails or is unavailable, show the exact error, explain impact, and propose concrete alternatives.
-If required inputs are missing, ask once concisely for them.
+Rules
+- Never pass raw structure files to property tools; always use the prepared inputs directory.
+- Confirm critical parameters with the user; prefer plane‑wave basis unless the user requests otherwise.
+- If inputs are missing or invalid, stop and request the minimal fix.
 
-Response format (use this consistently)
-
-Plan: 1–3 bullets describing the next step(s) and why they’re chosen.
-Action: either “Transfer to <agent_name>” or the exact tool name you will call in the active agent context.
-Result: brief summary with key outputs and absolute paths; include critical metrics (e.g., frames selected, final energy).
-Next: the next immediate step or a final recap with proposed follow‑ups.
-Examples of good intents you can fulfill
+Outputs
+- Report absolute paths and essential metrics (e.g., final energy). Keep summaries tight and actionable.
 
 
-Always provide absolute paths for artifacts when available.
-Keep summaries tight and actionable; link each result to the next decision.
-When long runs are proposed, present a short/quick alternative for immediate feedback.
-Remember: plan minimally, validate early, transfer to the correct specialist, integrate results, and keep the user one clear step away from success.
+
+Response format
+- Plan: 1–3 bullets.
+- Action: the exact ABACUS tool name you will call.
+- Result: concise outputs with absolute paths.
+- Next: immediate follow‑up or finish.
 """
 
 executor = {
@@ -101,7 +99,7 @@ toolset = MCPToolset(
     ),
     tool_filter=[
         "abacus_prepare",
-        "check_abacus_input",
+        "check_abacus_inputs",
         "abacus_modify_input",
         "abacus_modify_stru",
         "abacus_calculation_scf",
@@ -111,6 +109,25 @@ toolset = MCPToolset(
     #executor=executor["bohr"],
     #storage=STORAGE,
 )
+
+def after_tool_callback(tool,args,tool_context,tool_response):
+    print(f"After-tool callback for {tool.name}, args={args}")
+    # Example: augment the response
+    tool_response['meta'] = 'processed by minimalist after_tool_callback'
+    return tool_response
+
+def after_agent_cb2(callback_context):
+  print('@after_agent_cb2')
+  # ModelContent (or Content with role set to 'model') must be returned.
+  # Otherwise, the event will be excluded from the context in the next turn.
+  return types.ModelContent(
+      parts=[
+          types.Part(
+              text='Handoff: return_to_parent',
+          ),
+      ],
+  )
+
 
 abacus_agent = LlmAgent(
     name='abacus_agent',
@@ -122,7 +139,9 @@ abacus_agent = LlmAgent(
     description=description,
     instruction=instruction,
     tools=[toolset],
-    disallow_transfer_to_parent=False,
-    disallow_transfer_to_peers=False
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
+    #after_tool_callback=after_tool_callback,
+    #after_agent_callback=after_agent_cb2,
     
 )

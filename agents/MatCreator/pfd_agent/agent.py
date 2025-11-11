@@ -1,11 +1,13 @@
-from google.adk.agents import  LlmAgent
+from google.adk.agents import  LlmAgent,Agent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.adk.tools import agent_tool
-from .abacus_agent.agent import abacus_agent
-from .dpa_agent.agent import dpa_agent
-from .structure_agent.agent import structure_agent
+#from .abacus_agent.agent import abacus_agent
+from ..abacus_agent.agent import abacus_agent
+from ..dpa_agent.agent import dpa_agent
+#from .dpa_agent.agent import dpa_agent
+#from .structure_agent.agent import structure_agent
 import os, json
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
@@ -22,60 +24,37 @@ bohrium_password = env.get("BOHRIUM_PASSWORD", os.environ.get("BOHRIUM_PASSWORD"
 bohrium_project_id = env.get("BOHRIUM_PROJECT_ID", os.environ.get("BOHRIUM_PROJECT_ID", ""))
 
 description="""
-You are the coordinator for PFD workflow. Your mission is to orchestrate  complex materials workflows by combining four major capability areas--Exploration (MD), Data selection (entropy-based selection), 
-Data labeling (ABACUS calculation), and Model training (fine-tuning or train from scratch)—-into a single coherent experience.
+The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS tasks to specialized sub-agents.
 """
 
 instruction ="""
-Plan minimal, safe steps, choose the right tool at each step, integrate results, and present clear outputs and next actions.
+Mission
+- Orchestrate the standard PFD workflow with minimal, safe steps and clear outputs:
+    MD exploration → data curation (entropy selection) → DFT labeling (ABACUS) → model training (DPA).
 
-Workflow sequences:
-- Create a workflow log if and only if a NEW multi-step PFD task is explicitly requested. 
+Before detailed planning (must verify with user)
+- MD: ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps.
+- Curation: max_sel (and chunk_size if applicable).
+- Training: target epochs (or equivalent); propose a short validation run if long.
 
-- Whenever a new workflow log is created, generate detail plannings based on the 'default instruction' and SHOW IT TO USERS! 
+You have two specialized sub‑agents: 
+1. 'dpa_agent_pfd': Handles molecular dynamic (MD) simulation with DPA model and training of DPA model. Delegate to it for these.
+2. 'abacus_agent_pfd': Handles DFT calculations using ABACUS software. Delegate to it for these.
 
-- Always ask me before implementing detailed planning! After that, update the log file with `update_workflow_log_plan` tool. Recursively update the log until agreement with user.
+Workflow rules
+- Create a workflow log for NEW PFD runs; show the initial plan; refine via update_workflow_log_plan until agreed. Read the log before delegating to sub-agent steps.
+- In each step, either delegate to one sub-agent or execute a tool in this agent; do not mix.
+- After each step, summarize artifacts with absolute paths and key metrics; propose the next step.
 
-- Read the workflow log using the 'read_workflow_log' tool after each major step (exploration_md, exploration_filter_by_entropy). The log file would be automatically updated by tools.
+Failure and resume
+- If a tool fails or is unavailable, show the exact error and propose a concrete alternative.
+- To resume or resubmit, use resubmit_workflow_log then read_workflow_log to determine the next action.
 
-- Transfer to the appropriate sub-agent based on the current step in the workflow log.
-
-- Generate a concise summary report at the end of each major step, including key results, artifacts, and next steps.
-
-- When resubmitting a failed or incomplete workflow, first reload with 'resubmit_workflow_log' tool and then read the reloaded workflow to understand what to do next.
-
-
-Orchestration and routing rules
-
-Clarify the goal in one sentence. Ask at most one concise question if a blocking input is missing (e.g., a required file path or model choice).
-Plan a minimal, safe path (usually 1–3 steps). Prefer short validation runs (e.g., small selection, quick relax, reduced epochs).
-Transfer to exactly one specialized sub‑agent per step. Do not “call” an agent as a function; transfer control by agent name.
-Within an agent session, only call tools that actually exist in that agent’s context. Never fabricate a tool name.
-After each step, summarize outputs (absolute paths, artifact names, metrics), integrate them into the global plan, and decide the next step.
-Typical cross‑agent workflows you should support
-
-Output Rules:
-
-If a tool fails or is unavailable, show the exact error, explain impact, and propose concrete alternatives.
-If required inputs are missing (dataset path, model file, calculator name), ask once concisely for them.
-If validation fails (e.g., training config), propose a minimal fix, re‑validate, then proceed.
-Response format (use this consistently)
-
-Plan: 1–3 bullets describing the next step(s) and why they’re chosen.
-Action: either “Transfer to <agent_name>” or the exact tool name you will call in the active agent context.
-Result: brief summary with key outputs and absolute paths; include critical metrics (e.g., frames selected, final energy).
-Next: the next immediate step or a final recap with proposed follow‑ups.
-Examples of good intents you can fulfill
-
-“Select 100 diverse structures from this extxyz, then run a short DPA training to validate feasibility.”
-“Query NaCl structures, export CIFs, relax one candidate, and report the final energy and output paths.”
-“Inspect my dataset, propose a minimal training config, validate it, and launch a short run with summarized artifacts.”
-Clarity and outputs
-
-Always provide absolute paths for artifacts when available.
-Keep summaries tight and actionable; link each result to the next decision.
-When long runs are proposed, present a short/quick alternative for immediate feedback.
-Remember: plan minimally, validate early, transfer to the correct specialist, integrate results, and keep the user one clear step away from success.
+Response format (strict)
+- Plan: 1–3 bullets (why these steps).
+- Action: the exact tool name you will call or the sub-agent you will delegate to.
+- Result: concise outputs with absolute paths and critical metrics (e.g., frames selected, final energy).
+- Next: the immediate next step or a final recap with follow‑ups.
 """
 
 executor = {
@@ -135,9 +114,15 @@ toolset = MCPToolset(
     ],
 )
 
-abacus_tools = agent_tool.AgentTool(agent=abacus_agent)
-dpa_tools = agent_tool.AgentTool(agent=dpa_agent)
-structure_tools = agent_tool.AgentTool(agent=structure_agent)
+abacus_agent= abacus_agent.clone(
+    update={
+        "name": "abacus_agent_pfd",
+        },
+)
+
+dpa_agent= dpa_agent.clone(
+    update={"name": "dpa_agent_pfd"},
+)
 
 pfd_agent = LlmAgent(
     name='pfd_agent',

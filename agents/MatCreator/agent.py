@@ -4,6 +4,9 @@ from google.adk.tools import agent_tool
 import os, json
 from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
+from .abacus_agent.agent import abacus_agent
+from .dpa_agent.agent import dpa_agent
+#from .pfd_agent.abacus_agent.agent import abacus_agent
 #from .abacus_agent.agent import abacus_agent
 #from .dpa_agent.agent import dpa_agent
 #from .structure_agent.agent import structure_agent
@@ -19,9 +22,9 @@ model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
 model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
 
 description="""
-You are the MatCreator Agent. You route user intents to the right capability: direct sub-agents
-(database, structure, abacus, dpa) for simple single-step tasks, or the PFD coordinator agent for
-multi-stage PFD workflows (exploration → selection → labeling → training).
+You are the MatCreator Agent. You route user intents to the right capability: either direct sub-agents
+(database, structure, abacus, dpa) for simple tasks, or utilize specialized coordinator agents for
+certain complex workflows.
 """ 
 
 global_instruction = """
@@ -36,17 +39,15 @@ Important:
 
 instruction ="""
 Routing logic
-- Simple, specific asks (single operation: query DB, export entries, MD run, single
-    structure optimization, training with ready config) → directly TRANSFER to the matching sub-agent:
-        database_agent | structure_agent | abacus_agent | dpa_agent.
-- Complex or multi-stage PFD workflows (mix of exploration MD, filtering, ABACUS labeling, model
-    training, iterative loops, workflow logging) → TRANSFER to pfd_agent (coordinator). It will handle
-    log creation, planning refinement, and cross-step execution.
+- Simple, specific tasks, orchestrate and directly TRANSFER to the matching sub-agent: database_agent | abacus_agent | dpa_agent.
+- For complex, multi-stage workflows, delegate to specialized coordinator agent if available. 
+ 
+You have one specialized coordinator agent:
+1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of exploration MD, filtering, ABACUS labeling and model
+    training).
 
 Decision rules (must follow)
-1. Detect multi-step intent if the user mentions ≥2 distinct phases (e.g. “select then train”,
-    “relax then label energies”, “MD + entropy + training”). When you intend to route to the
-    coordinator (pfd_agent), ALWAYS ask for explicit user confirmation first (one concise question).
+1. Detect user intent for available specialized workflows. When you intend to route to the coordinator (pfd_agent), ALWAYS ask for explicit user confirmation first (one concise question).
 2. If intent is ambiguous, ask one concise clarifying question before routing.
 3. Never mix tool calls from different sub-agents in the same step; each response TRANSFERs to one agent.
 
@@ -74,9 +75,7 @@ Response format (strict)
 Do not call tools directly here; always TRANSFER. Never fabricate agent or tool names.
 """
 
-#abacus_tools = agent_tool.AgentTool(agent=abacus_agent)
-#dpa_tools = agent_tool.AgentTool(agent=dpa_agent)
-#structure_tools = agent_tool.AgentTool(agent=structure_agent)
+
 
 root_agent = LlmAgent(
     name='MatCreator_agent',
@@ -89,5 +88,7 @@ root_agent = LlmAgent(
     instruction=instruction,
     global_instruction=global_instruction,
     #tools=[abacus_tools, dpa_tools, structure_tools],
-    sub_agents=[pfd_agent, database_agent],
-)
+    sub_agents=[pfd_agent, database_agent, 
+                abacus_agent,dpa_agent
+                ]
+    )

@@ -447,7 +447,7 @@ def run_molecular_dynamics(
             - runtime_ps (float): Simulation duration in picoseconds. (default: 0.5 ps)
             - temperature_K (float, optional): Temperature in Kelvin (required for NVT/NPT).
             - pressure (float, optional): Pressure in GPa (required for NPT).
-            - timestep_ps (float, optional): Time step in picoseconds (default: 0.0005 ps = 0.5 fs).
+            - timestep (float, optional): Time step in picoseconds (default: 0.0005 ps = 0.5 fs).
             - tau_t_ps (float, optional): Temperature coupling time in picoseconds (default: 0.01 ps).
             - tau_p_ps (float, optional): Pressure coupling time in picoseconds (default: 0.1 ps).
         save_interval_steps (int): Interval (in MD steps) to save trajectory frames (default: 100).
