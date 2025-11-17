@@ -1,24 +1,19 @@
-from google.adk.agents import  LlmAgent
+from google.adk.agents import  LlmAgent,BaseAgent,Agent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
-from google.adk.tools import agent_tool
-from ..abacus_agent.agent import abacus_agent
+from dp.agent.adapter.adk import CalculationMCPToolset
 import os, json
 from typing import List, Dict, Any
+from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 
-# Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
-env_file = os.path.expanduser("~/.pfd_agent/env.json")
-if os.path.isfile(env_file):
-    env = json.load(open(env_file, "r"))
-else:
-    env = {}
-model_name = env.get("LLM_MODEL", os.environ.get("LLM_MODEL", ""))
-model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
-model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
-bohrium_username = env.get("BOHRIUM_USERNAME", os.environ.get("BOHRIUM_USERNAME", ""))
-bohrium_password = env.get("BOHRIUM_PASSWORD", os.environ.get("BOHRIUM_PASSWORD", ""))
-bohrium_project_id = env.get("BOHRIUM_PROJECT_ID", os.environ.get("BOHRIUM_PROJECT_ID", ""))
+# Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
+model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
+model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
+model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
+bohrium_username = os.environ.get("BOHRIUM_USERNAME", BOHRIUM_USERNAME)
+bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
+bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
 
 description="""
 You are the DPA Agent for Deep Potential workflows. You inspect/split datasets,
@@ -78,10 +73,10 @@ executor = {
                 "password": bohrium_password,
                 "program_id": bohrium_project_id,
                 "input_data": {
-                    "image_name": "registry.dp.tech/dptech/dp/native/prod-22618/abacus-agent-tools:v0.2",
+                    "image_name": "registry.dp.tech/dptech/dp/native/prod-25997/ase-dpa:3.1.0",
                     "job_type": "container",
                     "platform": "ali",
-                    "scass_type": "c32_m64_cpu",
+                    "scass_type": "1 * NVIDIA V100_16g",
                 },
             },
         }
@@ -90,14 +85,10 @@ executor = {
 }
 
 EXECUTOR_MAP = {
-    "generate_bulk_structure": executor["local"],
-    "generate_molecule_structure": executor["local"],
-    "abacus_prepare": executor["local"],
-    "abacus_modify_input": executor["local"],
-    "abacus_modify_stru": executor["local"],
-    "abacus_collect_data": executor["local"],
-    "abacus_prepare_inputs_from_relax_results": executor["local"],
-    "generate_bulk_structure_from_wyckoff_position": executor["local"],
+    "run_molecular_dynamics": executor["bohr"],
+    "optimize_structure": executor["bohr"],
+    "training": executor["bohr"],
+    "ase_calculation": executor["bohr"],
 }
 
 STORAGE = {
@@ -155,9 +146,10 @@ def list_calculators() -> List[Dict[str, Any]]:
 
 
 # tools hosted by MCP server
-toolset = MCPToolset(
+toolset = CalculationMCPToolset(
     connection_params=SseServerParams(
-        url="http://localhost:50003/sse", # Or any other MCP server URL
+        #url="https://kyuz1150126.bohrium.tech:50001/sse", # Or any other MCP server URL
+        url="http://localhost:50002/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[
@@ -172,7 +164,7 @@ toolset = MCPToolset(
         "get_base_model_path"
     ],
     #executor_map = EXECUTOR_MAP,
-    #executor=executor["local"],
+    executor=executor["local"],
     #storage=STORAGE,
 )
 

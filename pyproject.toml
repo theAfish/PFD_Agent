@@ -15,7 +15,7 @@ dependencies = [
     "numpy==1.26.4",
     "periodictable>=2.0.2",
     "pyyaml>=6.0.2",
-    "science-agent-sdk>=0.1.8",
+    "bohr-agent-sdk",
     "scipy>=1.16.2",
 ]
 
