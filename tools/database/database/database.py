@@ -10,6 +10,7 @@ from google.genai import types
 from google.adk.models.lite_llm import LiteLlm
 import sqlite3, re
 from matcreator.tools.util.common import generate_work_path
+from datetime import datetime
 
 DB_DESCRIBE = """
 The database has a table named `dataset_info`, each row of the table is the information of an ASE dataset (a *.db file), the table has 7 columns:
@@ -52,6 +53,36 @@ class QueryResult(TypedDict):
     ids: List[int]
     formulas: List[str]
     results: List[Dict[str, Any]]
+
+def save_extxyz_to_db(extxyz_path: str, 
+                      info_db_path: str,
+                      ase_db_path: str):
+    
+    db = connect(ase_db_path)
+    images = read(extxyz_path, format="extxyz", index=":")
+
+    elements_set = set()
+    for item in images:
+        elements_set.update(item.get_chemical_symbols())
+        db.write(item)
+    elements_list = sorted(list(elements_set))
+    now = datetime.now()
+    info_dict = {
+        "ID": f"{now.year}-{now.month}-{now.day}:{now.hour}-{now.min}-{now.second}",
+        "Elements": "-".join(elements_list),
+        "Type": "Bulk",
+        "Fields": "Unknown",
+        "Entries": len(images),
+        "Source": "User Calculation",
+        "Path": ase_db_path
+    }
+    with sqlite3.connect(info_db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO dataset_info (ID, Elements, Type, Fields, Entries, Source, Path) VALUES (:ID, :Elements, :Type, :Fields, :Entries, :Source, :Path)",
+            info_dict
+        )
+        conn.commit()
 
 
 async def get_sql_codes_from_llm(llm: LiteLlm, user_prompts:str) -> str: 

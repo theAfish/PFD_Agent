@@ -46,6 +46,8 @@ Capabilities (tools provided by the Database MCP server):
   can be provided by `query_information_database`. 
 - export_entries(ids, db_path, fmt): Export selected entries to a combined structure file and a
   line-delimited metadata JSON.
+- save_extxyz_to_db(extxyz_path): Convert an extxyz file to an ASE db dataset and save its information to
+  the information database.
 
 
 Operating rules:

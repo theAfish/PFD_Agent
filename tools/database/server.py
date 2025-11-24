@@ -12,11 +12,12 @@ from mcp.server.fastmcp import FastMCP
 from database import (
     read_user_structure as _read_user_structure,
     query_compounds as _query_compounds,
-    export_entries as _export_entries,
+    export_entries as _export_entries
     )
 
 from database import get_sql_codes_from_llm as _get_sql_codes_from_llm
 from database import query_information_database as _query_information_database
+from database import save_extxyz_to_db as _save_extxyz_to_db
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -134,6 +135,21 @@ def main():
         api_key  = model_api_key
     )
 
+    @mcp.tool()
+    def save_extxyz_to_db(extxyz_path:str):
+        """
+        Convert an extxyz file to an ASE db dataset and save its information to the information database.
+
+        Args:
+            extxyz_path (str): The path to the extxyz file.
+        
+        """
+        root_dir = Path(info_db_path)
+        user_data_dir = root_dir.parent / "user_data"
+        if not user_data_dir.is_dir():
+            user_data_dir.mkdir()
+        db_file_path = user_data_dir / f"{time.strftime('%Y%m%d%H%M%S')}.db"
+        _save_extxyz_to_db(extxyz_path, info_db_path, db_file_path)
 
     @mcp.tool()
     async def get_sql_codes_from_llm(user_prompts:str) -> str: 
