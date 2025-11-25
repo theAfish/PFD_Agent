@@ -32,15 +32,19 @@ Repeat this for all the servers in the `tools` directory. If required dependenci
 
 ### Running agent networks
 #### Setting constants
-Set the constants values at `agents/MatCreator/constants.py`. You can set `Bohrium` credentials if `bohr` executors for MCP tools is preferred.
-```python
-# LLM settings
-LLM_MODEL=""
-LLM_API_KEY=""
-LLM_BASE_URL=""
-BOHRIUM_USERNAME=""
-BOHRIUM_PASSWORD=""
-BOHRIUM_PROJECT_ID=11111
+Populate `agents/MatCreator/input.json` with your model and Bohrium credentials (or point the
+`MATCREATOR_CONFIG_PATH` environment variable to another JSON file). Environment variables of the
+same name always override what is stored in the JSON file.
+
+```json
+{
+    "LLM_MODEL": "",
+    "LLM_API_KEY": "",
+    "LLM_BASE_URL": "",
+    "BOHRIUM_USERNAME": "",
+    "BOHRIUM_PASSWORD": "",
+    "BOHRIUM_PROJECT_ID": 11111
+}
 ```
 
 #### Connecting a client agent (SSE)
