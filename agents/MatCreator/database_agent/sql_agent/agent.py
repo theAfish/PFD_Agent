@@ -9,10 +9,11 @@ from pydantic import BaseModel, Field
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
+# deprecated
 _DB_GUIDE = """
 You can only query the `dataset_info` table. Each row corresponds to a dataset in the ASE database and
 exposes the following columns (all strings unless noted):
-- ID (TEXT): unique identifier such as "2025-03-02:12-30-45".
+- ID (INTEGER): unique identifier for the dataset.
 - Elements (TEXT): hyphen-joined, lexicographically sorted symbols (e.g., "Al-Fe-Si").
 - Type (TEXT): dataset system type (Cluster, Bulk, Surface, Interface, etc.).
 - Fields (TEXT): research domain (Alloy, Catalysis, Semiconductor, ...).
@@ -24,8 +25,7 @@ Rules:
 1. Generate exactly ONE SELECT statement that reads from `dataset_info` and returns every column unless
    the user explicitly requests a subset.
 2. Never write UPDATE/INSERT/DELETE/ALTER/PRAGMA or attach other tables.
-3. Prefer equality on Elements when the full hyphenated formula is known; otherwise use LIKE with
-   wildcards (e.g., Elements LIKE '%Fe%' AND Elements LIKE '%Ni%').
+3. Prefer equality on Elements when the composition is fully determined (e.g., Elements = 'Mg-O'). This also includes non-hyphenated formulas such as 'MgO' or 'SiO2', which correspond to 'Mg-O' or 'O-Si'.
 4. Default to ordering by Entries DESC when the user asks for "largest" datasets; use LIMIT if a
    numeric cap is given (assume 20 if the user says "a few" or "top" without a number).
 5. Keep the SQL minimal (no subqueries) and omit trailing semicolons.

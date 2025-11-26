@@ -16,7 +16,7 @@ from database import (
 
 from database import query_information_database as _query_information_database
 from database import save_extxyz_to_db as _save_extxyz_to_db
-from database import validate_sql
+from database import validate_sql_query
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -118,20 +118,20 @@ def save_extxyz_to_db(extxyz_path:str):
     
 
 @mcp.tool()
-def validate_sql_code(sql_code: str) -> Dict[str, Any]:
+def validate_sql_code_query(sql_code: str) -> Dict[str, Any]:
     """Validate a SELECT statement before execution.
 
     Returns dict with normalized SQL (if valid) plus status/error info.
     """
     try:
-        normalized = validate_sql(sql_code)
+        normalized = validate_sql_query(sql_code)
         return {"valid": True, "sql": normalized, "error": None}
     except ValueError as exc:
         return {"valid": False, "sql": "", "error": str(exc)}
 
 
-@mcp.tool()
-def query_information_database(sql_code:str)->Tuple[str, Dict[str, Any]]:
+# deprecated
+def query_information_database_tmp(sql_code:str)->Tuple[str, Dict[str, Any]]:
     """
     Execute sql command on the information database. The function return a tuple of two elements:
         - The descriptive string of the query result in markdown format. It can be represented to the user.
@@ -173,6 +173,39 @@ def query_information_database(sql_code:str)->Tuple[str, Dict[str, Any]]:
         summary_str += f"| {row['ID']} | {row['Elements']} | {row['Type']} | {row['Fields']} | {row['Entries']} |\n"
     return summary_str, query_result
          
+@mcp.tool()
+def query_information_database(sql_code: str) -> Dict[str, Any]:
+    """Execute a SELECT statement on the information database and summarize the datasets.
+
+    Args:
+        sql_code (str): Validated single SELECT statement targeting ``dataset_info``.
+
+    Returns:
+        Dict[str, Any]:
+            - ``query`` (str): Normalized SQL string that was executed.
+            - ``count`` (int): Number of datasets returned by the query.
+            - ``datasets`` (List[Dict[str, Any]]): Minimal per-dataset metadata with keys
+              ``ID``, ``Elements``, ``Type``, ``Fields``, ``Entries``, and absolute ``Path``.
+    """
+    
+    query_result = _query_information_database(sql_code, info_db_path)
+    
+    dataset_summaries: List = [
+        {
+            "ID": row["ID"],
+            "Elements": row["Elements"],
+            "Type": row["Type"],
+            "Fields": row["Fields"],
+            "Entries": row["Entries"],
+            "Path": row["Path"],
+        }
+        for row in query_result["results"]
+    ]
+    return {
+        "query": sql_code.strip(),
+        "count": len(dataset_summaries),
+        "datasets": dataset_summaries,
+    }
 
 @mcp.tool()
 def read_user_structure(
