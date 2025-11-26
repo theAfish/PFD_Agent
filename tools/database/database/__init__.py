@@ -4,6 +4,6 @@ from .database import (
     export_entries,
     query_information_database,
     save_extxyz_to_db,
-    extract_sql_from_text,
-    validate_sql,
+    #extract_sql_from_text,
+    validate_sql_query,
 )

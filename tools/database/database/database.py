@@ -67,23 +67,24 @@ def save_extxyz_to_db(extxyz_path: str,
         conn.commit()
 
 
-SQL_BLOCK_PATTERN = re.compile(r"```(?:sql)?\s*\n(.*?)```", re.IGNORECASE | re.DOTALL)
-SQL_FORBIDDEN_KEYWORDS = re.compile(
+#SQL_BLOCK_PATTERN = re.compile(r"```(?:sql)?\s*\n(.*?)```", re.IGNORECASE | re.DOTALL)
+
+#def extract_sql_from_text(text: str) -> str:
+#    """Extract the first fenced SQL block, stripped of empty lines."""
+#    match = SQL_BLOCK_PATTERN.search(text or "")
+#    if not match:
+#        return ""
+#    block = match.group(1).strip()
+#    lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+#    return "\n".join(lines)
+
+SQL_FORBIDDEN_KEYWORDS_QUERY = re.compile(
     r"\b(UPDATE|INSERT|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|REPLACE|VACUUM|PRAGMA)\b",
     re.IGNORECASE,
 )
 
-def extract_sql_from_text(text: str) -> str:
-    """Extract the first fenced SQL block, stripped of empty lines."""
-    match = SQL_BLOCK_PATTERN.search(text or "")
-    if not match:
-        return ""
-    block = match.group(1).strip()
-    lines = [line.rstrip() for line in block.splitlines() if line.strip()]
-    return "\n".join(lines)
-
-def validate_sql(sql_code: str) -> str:
-    """Validate and normalize a single non-destructive SELECT statement.
+def validate_sql_query(sql_code: str) -> str:
+    """Validate and normalize a single non-destructive SELECT statement for dataset query.
 
     Returns the sanitized SQL or raises ValueError if invalid.
     """
@@ -95,7 +96,7 @@ def validate_sql(sql_code: str) -> str:
     stmt = statements[0]
     if not re.match(r"^\s*SELECT\b", stmt, re.IGNORECASE):
         raise ValueError("Only SELECT statements are permitted")
-    if SQL_FORBIDDEN_KEYWORDS.search(stmt):
+    if SQL_FORBIDDEN_KEYWORDS_QUERY.search(stmt):
         raise ValueError("Destructive or schema-altering keywords detected")
     return stmt
 

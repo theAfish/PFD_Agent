@@ -9,13 +9,12 @@ from pydantic import BaseModel, Field
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
+# deprecated
 _DB_GUIDE = """
-This sqlite3 database has a table named `dataset_info`, each row of the table is the information of an ASE dataset (a *.db file), the table has 8 columns:
-
-- ID (INTEGER): The primary key of the table.
-- Date (TEXT): The insertion date of this row.
-- Elements (TEXT): chemical elements containing in this dataset, arranged in lexicographic order and connected by 
-  hyphens, for example, Al-Fe-Si.
+You can only query the `dataset_info` table. Each row corresponds to a dataset in the ASE database and
+exposes the following columns (all strings unless noted):
+- ID (INTEGER): unique identifier for the dataset.
+- Elements (TEXT): hyphen-joined, lexicographically sorted symbols (e.g., "Al-Fe-Si").
 - Type (TEXT): dataset system type (Cluster, Bulk, Surface, Interface, etc.).
 - Fields (TEXT): research domain (Alloy, Catalysis, Semiconductor, ...).
 - Entries (INTEGER): number of structures in the dataset.

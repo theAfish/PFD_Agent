@@ -12,7 +12,6 @@ from typing import (
 from matcreator.tools.util.common import generate_work_path
 from .dp import DPTrain
 from ase.io import read, write
-import shutil
 from jsonschema import validate, ValidationError
 
 
@@ -254,7 +253,7 @@ def training(
         logging.info("Training completed!")
         test_metrics = None
         if test_data:
-            _, test_metrics = runner.test()
+            _, test_metrics = runner.test(workdir=work_path)
         result ={
             "status":"success",
             "model": str(model.resolve()),
