@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import random
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, Tuple, Callable
 from ase.db import connect
@@ -8,34 +9,18 @@ from ase.io import write,read
 import sqlite3, re
 from matcreator.tools.util.common import generate_work_path
 from datetime import datetime
+import traceback, time, uuid
 
-DB_DESCRIBE = """
-The database has a table named `dataset_info`, each row of the table is the information of an ASE dataset (a *.db file), the table has 7 columns:
+#def generate_work_path(create: bool = True) -> str:
+#    calling_function = traceback.extract_stack(limit=2)[-2].name
+#    current_time = time.strftime("%Y%m%d%H%M%S")
+#    random_string = str(uuid.uuid4())[:8]
+#    work_path = f"{current_time}.{calling_function}.{random_string}"
+#    if create:
+#        os.makedirs(work_path, exist_ok=True)
+#    
+#    return work_path
 
-- ID: The global id of the dataset. An integer.
-- Elements: chemical elements containing in this dataset, arranged in lexicographic order and connected by 
-  hyphens, for example, Al-Fe-Si. A string.
-- Type: The system type of this dataset, such as Cluster, Bluk, Surface, Interface and so on. A string.
-- Fields: The related field of this dataset, such as Alloy, Catalysis, Semi Conductor and so on. A string.
-- Entries: The number of entries (chemical structures) in this dataset. An integer.
-- Source: Where does this dataset come from, such as an URL or DOI of an article. A string.
-- Path: The path of this dataset file (*.db) relative the root dir `./ai-database`. A string.
-
-For the sake of simplicity, only search the data by the `Elements` column if the user does not provide information 
-except the chemical elements or formulas. Please provide the corresponding SQL code according to the user's input below. 
-The SQL code should query all the information of an entry.
-
-Important: Just return the minimal necessary reply and enclose the SQL code with a markdown style block.
-"""
-
-# Globals configured at runtime
-#INFO_DB_PATH: Optional[Path] = Path(os.environ.get("INFO_DB_PATH","")).resolve()
-
-# def _resolve_db_path(db_path: Optional[Path]) -> Path:
-#     path = (db_path or INFO_DB_PATH).expanduser().resolve()
-#     if not path.exists():
-#         raise FileNotFoundError(f"Data information database not found at {path}")
-#     return path
 
 class AtomsInfoResult(TypedDict):
     """Result structure for model training"""
@@ -53,7 +38,8 @@ class QueryResult(TypedDict):
 
 def save_extxyz_to_db(extxyz_path: str, 
                       info_db_path: str,
-                      ase_db_path: str):
+                      ase_db_path: str,
+                      db_path_info: str):
     
     db = connect(ase_db_path)
     images = read(extxyz_path, format="extxyz", index=":")
@@ -65,40 +51,41 @@ def save_extxyz_to_db(extxyz_path: str,
     elements_list = sorted(list(elements_set))
     now = datetime.now()
     info_dict = {
-        "ID": f"{now.year}-{now.month}-{now.day}:{now.hour}-{now.min}-{now.second}",
+        "Date": f"{now.year}-{now.month}-{now.day}:{now.hour}-{now.min}-{now.second}",
         "Elements": "-".join(elements_list),
         "Type": "Bulk",
         "Fields": "Unknown",
         "Entries": len(images),
         "Source": "User Calculation",
-        "Path": ase_db_path
+        "Path": db_path_info
     }
     with sqlite3.connect(info_db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO dataset_info (ID, Elements, Type, Fields, Entries, Source, Path) VALUES (:ID, :Elements, :Type, :Fields, :Entries, :Source, :Path)",
+            "INSERT INTO dataset_info (Date, Elements, Type, Fields, Entries, Source, Path) VALUES (:Date, :Elements, :Type, :Fields, :Entries, :Source, :Path)",
             info_dict
         )
         conn.commit()
 
 
-SQL_BLOCK_PATTERN = re.compile(r"```(?:sql)?\s*\n(.*?)```", re.IGNORECASE | re.DOTALL)
-SQL_FORBIDDEN_KEYWORDS = re.compile(
+#SQL_BLOCK_PATTERN = re.compile(r"```(?:sql)?\s*\n(.*?)```", re.IGNORECASE | re.DOTALL)
+
+#def extract_sql_from_text(text: str) -> str:
+#    """Extract the first fenced SQL block, stripped of empty lines."""
+#    match = SQL_BLOCK_PATTERN.search(text or "")
+#    if not match:
+#        return ""
+#    block = match.group(1).strip()
+#    lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+#    return "\n".join(lines)
+
+SQL_FORBIDDEN_KEYWORDS_QUERY = re.compile(
     r"\b(UPDATE|INSERT|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|REPLACE|VACUUM|PRAGMA)\b",
     re.IGNORECASE,
 )
 
-def extract_sql_from_text(text: str) -> str:
-    """Extract the first fenced SQL block, stripped of empty lines."""
-    match = SQL_BLOCK_PATTERN.search(text or "")
-    if not match:
-        return ""
-    block = match.group(1).strip()
-    lines = [line.rstrip() for line in block.splitlines() if line.strip()]
-    return "\n".join(lines)
-
-def validate_sql(sql_code: str) -> str:
-    """Validate and normalize a single non-destructive SELECT statement.
+def validate_sql_query(sql_code: str) -> str:
+    """Validate and normalize a single non-destructive SELECT statement for dataset query.
 
     Returns the sanitized SQL or raises ValueError if invalid.
     """
@@ -110,12 +97,12 @@ def validate_sql(sql_code: str) -> str:
     stmt = statements[0]
     if not re.match(r"^\s*SELECT\b", stmt, re.IGNORECASE):
         raise ValueError("Only SELECT statements are permitted")
-    if SQL_FORBIDDEN_KEYWORDS.search(stmt):
+    if SQL_FORBIDDEN_KEYWORDS_QUERY.search(stmt):
         raise ValueError("Destructive or schema-altering keywords detected")
     return stmt
 
 
-def query_information_database(sql_code:str, db_path:str):
+def query_information_database(sql_code:str, db_path:str)->List[Dict[str, Any]]:
     
     """
     Execute sql command on the information database.
@@ -125,44 +112,26 @@ def query_information_database(sql_code:str, db_path:str):
         db_path(str): The path of the information database. 
 
     Returns:
-        QueryResult:
-            - query (str): Echo of the sql code (stringified).
-            - count (int): Number of rows returned.
-            - ids (List[int]): Unique row ids.
-            - formulas (List[str]): Unique empirical formulas (if available).
-            - results (List[Dict[str, Any]]): One dict per row with keys:
-                { 'ID', 'Elements', 'Type', 'Fields', 'Entries', 'Source', 'Path' }.
+        A list containing the query results.
     """
 
     if len(sql_code) == 0:
-        return QueryResult(
-            query="", count=0, ids=[], formulas=[], results=[]
-        )
+        return []
     db_path = Path(db_path)
     parent_path = db_path.parent
 
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
-
         cursor = conn.cursor()
         cursor.execute(sql_code)
-        records = cursor.fetchall() #records is a dict
-
-        query    = sql_code
-        count    = len(records)
-        ids      = []
-        formulas = []
+        records = cursor.fetchall() 
         results  = []
         for record in records:
             item = {key:record[key] for key in record.keys()}
             item["Path"] = str(parent_path / item["Path"])
             results.append(item)
-            ids.append(record["ID"])
-            formulas.append(record["Elements"])
-
-        return QueryResult(
-            query=query, count=count, ids=ids, formulas=formulas, results=results
-        )
+        
+        return results
 
 #@mcp.tool()
 def read_user_structure(
@@ -352,16 +321,36 @@ class ExportResult(TypedDict):
 
 #@mcp.tool()
 def export_entries(
-    ids: List[int],
-    db_path: str,
+    ids: Optional[List[int]] = None,
+    db_path: str = "",
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
+    mode: Literal["ids", "all", "random"] = "ids",
+    sample_size: Optional[int] = None,
+    random_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Export selected ASE database entries to a single structure file with summary stats."""
-    if not ids:
-        raise ValueError("ids must contain at least one entry id")
+    """Export ASE database entries with flexible selection strategies.
+
+    Args:
+        ids: Explicit entry ids (required when ``mode='ids'``).
+        db_path: Absolute path to the ASE database file.
+        fmt: Output structure format.
+        mode: Selection strategy: ``'ids'`` (default), ``'all'`` datasets, or ``'random'`` sample.
+        sample_size: Number of entries to sample when ``mode='random'``.
+        random_seed: Optional seed to make random sampling reproducible.
+
+    Returns:
+        ExportResult with paths to the structure bundle, metadata JSON, and aggregate counts.
+    """
+
+    if mode not in {"ids", "all", "random"}:
+        raise ValueError("mode must be one of: 'ids', 'all', 'random'")
+    if mode == "ids" and not ids:
+        raise ValueError("Provide at least one id when mode='ids'")
+    if mode == "random" and (sample_size is None or sample_size <= 0):
+        raise ValueError("sample_size must be a positive integer when mode='random'")
 
     path = db_path
-    work_path=Path(generate_work_path())
+    work_path = Path(generate_work_path())
     work_path = work_path.expanduser().resolve()
     work_path.mkdir(parents=True, exist_ok=True)
 
@@ -370,18 +359,43 @@ def export_entries(
     total_exported = 0
 
     metadata_path = work_path / "exported_metadata.json"
+    combined_path = work_path / f"exported_structures.{fmt}"
+
     try:
         with metadata_path.open("w", encoding="utf-8") as meta_fp:
             with connect(path) as db:
-                for entry_id in ids:
-                    row = db.get(id=entry_id)
+                target_ids: Optional[List[int]] = None
+
+                if mode == "ids":
+                    target_ids = list(ids or [])
+                elif mode == "random":
+                    available_ids = [row.id for row in db.select()]
+                    if not available_ids:
+                        target_ids = []
+                    else:
+                        sample_n = min(sample_size or 0, len(available_ids))
+                        rng = random.Random(random_seed)
+                        target_ids = rng.sample(available_ids, sample_n)
+                # mode == "all" keeps target_ids as None to stream rows directly
+
+                if mode == "all":
+                    row_iter = db.select()
+                else:
+                    row_iter = (
+                        db.get(id=entry_id)
+                        for entry_id in (target_ids or [])
+                    )
+
+                for row in row_iter:
+                    if row is None:
+                        continue
                     atoms = row.toatoms()
                     atoms_collection.append(atoms)
                     formula = row.get("formula") or atoms.get_chemical_formula(empirical=True)
                     if formula:
                         formulas.add(formula)
                     record = {
-                        "id": entry_id,
+                        "id": row.id,
                         "name": row.get("name"),
                         "formula": row.get("formula"),
                         "tags": row.get("tags"),
@@ -389,8 +403,13 @@ def export_entries(
                     meta_fp.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
                     total_exported += 1
 
-        combined_filename = f"exported_structures.{fmt}"
-        combined_path = work_path / combined_filename
+        if total_exported == 0:
+            metadata_path.unlink(missing_ok=True)
+            return ExportResult(
+                output_file=Path(""),
+                metadata_file=Path(""),
+                counts={"total_exported": 0, "unique_formulas": 0},
+            )
 
         payload = atoms_collection[0] if len(atoms_collection) == 1 else atoms_collection
         write(combined_path, payload, format=fmt)

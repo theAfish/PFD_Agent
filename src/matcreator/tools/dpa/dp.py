@@ -387,7 +387,7 @@ class DPTrain(Train):
         config = self._process_script(finetune_mode=finetune_mode)
         config = DPTrain.write_data_to_input_script(
             config,
-            _get_system_path("./train_data"),
+            _get_system_path(str(workdir/"train_data")),
             auto_prob_str,
             valid_data,
         )
@@ -438,7 +438,7 @@ class DPTrain(Train):
                         )
                     )
                 )
-            raise RuntimeError("dp train failed")
+            raise RuntimeError(f"dp train failed (see log)\nstdout:\n{out}\nstderr:\n{err}")
         fplog.write("#=================== train std out ===================\n")
         fplog.write(out)
         fplog.write("#=================== train std err ===================\n")
@@ -475,10 +475,12 @@ class DPTrain(Train):
         fplog.write(err)
         clean_before_quit()
         os.chdir(cwd)
-        return Path(workdir / self.model_file).resolve(),Path(workdir / self.log_file).resolve(),err
+        self.model_file = Path(workdir / self.model_file).resolve()
+        return self.model_file, Path(workdir / self.log_file).resolve(), err
         
     def test(
-        self
+        self,
+        workdir: Path,
     ) -> Tuple[Path, Dict[str, float]]:
         """Evaluate a trained DeepMD model on a list of labeled datasets using ASE.
 
@@ -493,7 +495,7 @@ class DPTrain(Train):
                 "Install deepmd-kit with ASE support or run evaluation externally."
             ) from e
         
-        out_dir = Path("./test_output")
+        out_dir = Path(workdir / "test_output")
         out_dir.mkdir(parents=True, exist_ok=True)
 
         model_fp = Path(self.model_file)
@@ -502,6 +504,8 @@ class DPTrain(Train):
         calc = DeepmdCalculator(model=str(model_fp))
 
         self.test_results=[]
+        if self.test_data and not isinstance(self.test_data, list):
+            self.test_data = [self.test_data]
         for idx, data in enumerate(self.test_data):
             atoms_ls: List[Atoms] = read(str(data), index=":")
             pred_e: List[float] = []
@@ -797,7 +801,7 @@ class DPTrain(Train):
     def config_args():
         return [
             Argument("numb_steps", int, optional=True, default=100, doc="Number of training steps"),  
-            Argument("type_map",List[str],optional=True,default=["Si"],doc="List of atomic types in the training system. Examples: ['H','O']"),          
+            #Argument("type_map",List[str],optional=True,default=["Si"],doc="List of atomic types in the training system. Examples: ['H','O']"),          
             Argument("decay_steps", int, optional=True, default=100, doc="Decay steps for learning rate decay"),
         ]
         

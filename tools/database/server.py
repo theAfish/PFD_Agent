@@ -16,7 +16,7 @@ from database import (
 
 from database import query_information_database as _query_information_database
 from database import save_extxyz_to_db as _save_extxyz_to_db
-from database import validate_sql
+from database import validate_sql_query
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -99,81 +99,60 @@ def save_extxyz_to_db(extxyz_path:str):
     user_data_dir = root_dir.parent / "user_data"
     if not user_data_dir.is_dir():
         user_data_dir.mkdir()
-    db_file_path = user_data_dir / f"{time.strftime('%Y%m%d%H%M%S')}.db"
-    _save_extxyz_to_db(extxyz_path, info_db_path, db_file_path)
-
-#@mcp.tool()
-#def extract_sql_select(raw_text: str) -> str:
-#    """Extract and validate a single non-destructive SELECT statement from raw LLM text.
-#
-#    Returns empty string if no fenced SQL block is found or validation fails.
-#    """
-#    sql = extract_sql_from_text(raw_text)
-#    if not sql:
-#        return ""
-#    try:
-#        return validate_sql(sql)
-#    except ValueError:
-#        return ""
     
+    db_name = f"{time.strftime('%Y%m%d%H%M%S')}.db"
+    db_file_path = user_data_dir / db_name
+    db_path_info = "user_data" + "/" + db_name
+    _save_extxyz_to_db(extxyz_path, str(info_db_path), str(db_file_path), db_path_info)
+
 
 @mcp.tool()
-def validate_sql_code(sql_code: str) -> Dict[str, Any]:
+def validate_sql_code_query(sql_code: str) -> Dict[str, Any]:
     """Validate a SELECT statement before execution.
 
     Returns dict with normalized SQL (if valid) plus status/error info.
     """
     try:
-        normalized = validate_sql(sql_code)
+        normalized = validate_sql_query(sql_code)
         return {"valid": True, "sql": normalized, "error": None}
     except ValueError as exc:
         return {"valid": False, "sql": "", "error": str(exc)}
 
-
-@mcp.tool()
-def query_information_database(sql_code:str)->Tuple[str, Dict[str, Any]]:
-    """
-    Execute sql command on the information database. The function return a tuple of two elements:
-        - The descriptive string of the query result in markdown format. It can be represented to the user.
-        - The query result in a structured format.
-
-        Args:
-            sql_code(str): A validated single SELECT statement (no mutation keywords).
-
-        Returns:
-            str: The descriptive string of the query result in a markdown table format. You can directly return it to the user.
-
-            QueryResult:
-                - query (str): Echo of the sql code (stringified).
-                - count (int): Number of rows returned.
-                - ids (List[int]): Unique row ids.
-                - formulas (List[str]): Unique empirical formulas (if available).
-                - results (List[Dict[str, Any]]): One dict per row with keys: { 'ID', 'Elements', 'Type', 'Fields', 'Entries', 'Source', 'Path' }. The meaning of these keys are
-                
-                    - ID: The global id of the dataset. An integer.
-                    - Elements: All the elements in this dataset, seperated by hyphen. A string, e.g. Al-Si-Fe.
-                    - Type: The system type of this dataset, such as Cluster, Bluk, Surface, Interface and so on. A string.
-                    - Fields: The related field of this dataset, such as Alloy, Catalysis, Semi Conductor and so on. A string.
-                    - Entries: The number of entries in this dataset. An integer.
-                    - Source: Where does this dataset come from. A string.
-                    - Path: The absolute path of the dataset file (*.db). A string. 
-        """
-
-        #logging.info(f"inside query_information_database info_db_path = {info_db_path}")
-    query_result = _query_information_database(sql_code, info_db_path)
-        
-
-        # The summery string is a markdown table, which contains the 
-        # ID, Elements, Type, Fields, Entries and Source, Path is omitted.
-    summary_str = "# Summary of Query Results\n\n"
-    summary_str += "You can specifically request entries by their IDs.\n\n"
-    summary_str += "| ID | Elements | Type | Fields | Entries |\n"
-    summary_str += "|----|----------|------|--------|---------|\n"
-    for row in query_result["results"]:
-        summary_str += f"| {row['ID']} | {row['Elements']} | {row['Type']} | {row['Fields']} | {row['Entries']} |\n"
-    return summary_str, query_result
          
+@mcp.tool()
+def query_information_database(sql_code: str) -> Dict[str, Any]:
+    """Execute a SELECT statement on the information database and summarize the datasets.
 
+    Args:
+        sql_code (str): Validated single SELECT statement targeting ``dataset_info``.
+
+    Returns:
+        Dict[str, Any]:
+            - ``query`` (str): Normalized SQL string that was executed.
+            - ``count`` (int): Number of datasets returned by the query.
+            - ``datasets`` (List[Dict[str, Any]]): Minimal per-dataset metadata with keys
+              ``ID``, ``Elements``, ``Type``, ``Fields``, ``Entries``, and absolute ``Path``.
+    """
+    
+    query_result = _query_information_database(sql_code, info_db_path)
+    
+    dataset_summaries: List = [
+        {
+            "ID": row["ID"],
+            "Elements": row["Elements"],
+            "Type": row["Type"],
+            "Fields": row["Fields"],
+            "Entries": row["Entries"],
+            "Path": row["Path"],
+        }
+        for row in query_result#["results"]
+    ]
+    return {
+        "query": sql_code.strip(),
+        "count": len(dataset_summaries),
+        "datasets": dataset_summaries,
+    }
+    
 @mcp.tool()
 def read_user_structure(
         structures: Union[List[Path], Path],
@@ -298,17 +277,34 @@ def query_compounds(
         
 @mcp.tool()        
 def export_entries(
-        ids: List[int],
-        db_path: str,
-        fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-        
+    ids: Optional[List[int]] = None,
+    db_path: str = "",
+    fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
+    mode: Literal["ids", "all", "random"] = "ids",
+    sample_size: Optional[int] = None,
+    random_seed: Optional[int] = None,
     ) -> Dict[str, Any]:
-    """Export selected ASE database entries to a single structure file with summary stats."""
+    """Export ASE entries by ids, the entire dataset, or a random sample.
+
+    Args:
+        ids (List[int] | None): Specific row identifiers when ``mode='ids'``.
+        db_path (str): Absolute path to the ASE database file.
+        fmt (Literal["extxyz", "cif", "traj"]): Output structure format.
+        mode (Literal["ids", "all", "random"]): Selection strategy.
+        sample_size (int | None): Number of entries to sample when ``mode='random'``.
+        random_seed (int | None): Optional seed for deterministic sampling.
+
+    Returns:
+        Dict[str, Any]: Paths to the exported structure file and metadata JSON plus summary counts.
+    """
     return _export_entries(
-            ids,
-            db_path=db_path,
-            fmt=fmt
-        )
+        ids=ids,
+        db_path=db_path,
+        fmt=fmt,
+        mode=mode,
+        sample_size=sample_size,
+        random_seed=random_seed,
+    )
 
 if __name__ == "__main__":
     create_workpath()
