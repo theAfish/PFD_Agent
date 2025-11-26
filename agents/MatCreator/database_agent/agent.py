@@ -28,19 +28,23 @@ clear outputs with absolute paths.
 Capabilities (tools provided by the Database MCP server unless noted otherwise):
 - database_sql_agent(request, preferred_limit): Structured SQL authoring specialist that converts the user intent
   into a single safe SELECT statement over dataset_info.
-- query_information_database(sql_code, db_path): Execute the provided SQL code on the sqlite3 database. 
-  This function will return a tuple which contains a description string and the query results. The string can
-  be directly shown to the user, and the query result is a Dict, you can asscess the "results" key, which is a 
-  List[Dict], the "Path" key of each Dict is the absolute path of an ASE dataset.
+- query_information_database(sql_code, db_path): Execute the provided SQL code on the sqlite3 database. After executing, 
+  you should stop and ask the user to input ids of entries in order to call `extract_query_results`. This function return a three-elements tuple `A`:
+    - `A[0]`: A summary string of the query, this SHOULD be returned to the client and displayed to the user.
+    - `A[1]`: The number of items queried from the database.
+    - `A[2]`: This should be passed to function `extract_query_results`.
+  You should present `A[0]` to the user and ask them to provide ids based on `A[0]`. Collect these ids and hand them over to the `extract_query_desults` function.
+- extract_query_results(id_list, query_results): Extract specific items from the query results returned by 
+  `query_information_database`, `id_list` (List[int]) should be provided by the user, `query_results` is given by `query_information_database`. This function will return a Dict, its `Path` entry containing the pathes of the ase db datasets.
 - read_user_structure(structures): Parse one or more structure files, aggregate frames into a single
   extxyz, and return chemical formula lists to guide queries.
 - query_compounds(selection, db_path, exclusive_elements, limit, custom_args): Run flexible queries
   against the ASE dataset and summarize matches (ids, formulas, metadata). The path of the ASE dataset 
-  can be provided by `query_information_database`. 
+  can be provided by `extract_query_results`. 
 - export_entries(ids, db_path, fmt): Export selected entries to a combined structure file and a
   line-delimited metadata JSON.
 - save_extxyz_to_db(extxyz_path): Convert an extxyz file to an ASE db dataset and save its information to
-  the information database.
+  the information database. DO NOT perform additional operations after this function call !
 
 
 Operating rules:
