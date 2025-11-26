@@ -5,7 +5,6 @@ from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.genai import types
 from dp.agent.adapter.adk import CalculationMCPToolset
 import os
-from matcreator.tools.log import after_tool_log_callback
 
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 

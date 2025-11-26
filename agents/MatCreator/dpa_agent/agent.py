@@ -3,7 +3,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from dp.agent.adapter.adk import CalculationMCPToolset
-import os, json
+import os
 from typing import List, Dict, Any
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 
@@ -53,7 +53,8 @@ instruction ="""
 
 - Defaults and tips
     - Prefer quick validations first (small splits, short MD stages, modest relax steps).
-    - Always return absolute artifact paths. If a tool fails, surface the exact error and propose a minimal fix.
+    - Always return absolute artifact paths. 
+    - If a tool fails, surface the exact error and propose a minimal fix. Do not proceed until explicit user command.
 
 - Response format
     - Plan: 1–3 bullets with the next step(s).

@@ -2,15 +2,12 @@ from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools import agent_tool
 import os, json
-#from .pfd_agent.agent import pfd_agent
+from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
-#from .abacus_agent.agent import abacus_agent
-#from .dpa_agent.agent import dpa_agent
+from .abacus_agent.agent import abacus_agent
+from .dpa_agent.agent import dpa_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
-#from .pfd_agent.abacus_agent.agent import abacus_agent
-#from .abacus_agent.agent import abacus_agent
-#from .dpa_agent.agent import dpa_agent
-#from .structure_agent.agent import structure_agent
+
 
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
@@ -82,11 +79,10 @@ root_agent = LlmAgent(
     description=description,
     instruction=instruction,
     global_instruction=global_instruction,
-    #tools=[abacus_tools, dpa_tools, structure_tools],
     sub_agents=[
-        #pfd_agent,
+        pfd_agent,
         database_agent,
-        #abacus_agent,
-        #dpa_agent,
+        abacus_agent,
+        dpa_agent,
     ]
     )
