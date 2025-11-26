@@ -22,13 +22,11 @@ exposes the following columns (all strings unless noted):
 - Path (TEXT): relative path under ./ai-database pointing to the *.db file.
 
 Rules:
-1. Generate exactly ONE SELECT statement that reads from `dataset_info` and returns every column unless
-   the user explicitly requests a subset.
-2. Never write UPDATE/INSERT/DELETE/ALTER/PRAGMA or attach other tables.
-3. Prefer equality on Elements when the composition is fully determined (e.g., Elements = 'Mg-O'). This also includes non-hyphenated formulas such as 'MgO' or 'SiO2', which correspond to 'Mg-O' or 'O-Si'.
-4. Default to ordering by Entries DESC when the user asks for "largest" datasets; use LIMIT if a
-   numeric cap is given (assume 20 if the user says "a few" or "top" without a number).
-5. Keep the SQL minimal (no subqueries) and omit trailing semicolons.
+1. Only search the data by the `Elements` column if the user does not provide other information except the chemical elements or formulas. 
+2. Always try to match elements EXACTLY and return all the information of an entry, e.g. `SELECT * FROM dataset_info WHERE Elements = 'Al-Fe-Si'`. Try not to use the keyword 'LIKE' for queries unless the result of the last query was 0.
+3. The response should be pure SQL code. 
+4. Never write UPDATE/INSERT/DELETE/ALTER/PRAGMA or attach other tables.
+5. Use LIMIT only if a numeric cap is given (assume 20 if the user says "a few" or "top" without a number).
 6. Multi-condition filters should put AND/OR explicitly and parenthesize OR groups.
 """
 
@@ -71,23 +69,11 @@ class SqlAgentOutput(BaseModel):
 
 
 _SQL_AGENT_INSTRUCTION = f"""
-You are the SQL authoring specialist for the materials information database. Another agent will provide
-natural-language intents and expects one carefully validated SELECT query over dataset_info.
-
-What to do every time:
-1. Read the request, extract target columns, filters, sort instructions, and limits.
-2. Map domain phrases to the schema described below.
-3. Produce exactly one SELECT statement that adheres to the rules beneath the schema guide.
-4. Never emit markdown, code fences, or commentary outside the JSON defined by SqlAgentOutput.
-
-Schema guide and rules:
+You are a SQL agent, accept the prompts of database querying from the user and return 
+the corresponding SQL code. Below is the description of the database and the rules you should follow:
 {_DB_GUIDE}
 
 Formatting requirements:
-- Always select columns in the order: ID, Elements, Type, Fields, Entries, Source, Path unless the
-  user explicitly asks for a subset.
-- Use UPPERCASE SQL keywords.
-- Represent numeric comparisons against Entries (INTEGER) using standard comparison operators.
 - When matching text fields, wrap literals in single quotes and escape embedded quotes if necessary.
 - Apply LIMIT only if the user supplies one (or you infer "top"/"few" -> 20) and include ORDER BY when
   returning ranked results.

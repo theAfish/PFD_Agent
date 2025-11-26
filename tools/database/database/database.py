@@ -8,34 +8,18 @@ from ase.io import write,read
 import sqlite3, re
 from matcreator.tools.util.common import generate_work_path
 from datetime import datetime
+import traceback, time, uuid
 
-DB_DESCRIBE = """
-The database has a table named `dataset_info`, each row of the table is the information of an ASE dataset (a *.db file), the table has 7 columns:
+#def generate_work_path(create: bool = True) -> str:
+#    calling_function = traceback.extract_stack(limit=2)[-2].name
+#    current_time = time.strftime("%Y%m%d%H%M%S")
+#    random_string = str(uuid.uuid4())[:8]
+#    work_path = f"{current_time}.{calling_function}.{random_string}"
+#    if create:
+#        os.makedirs(work_path, exist_ok=True)
+#    
+#    return work_path
 
-- ID: The global id of the dataset. An integer.
-- Elements: chemical elements containing in this dataset, arranged in lexicographic order and connected by 
-  hyphens, for example, Al-Fe-Si. A string.
-- Type: The system type of this dataset, such as Cluster, Bluk, Surface, Interface and so on. A string.
-- Fields: The related field of this dataset, such as Alloy, Catalysis, Semi Conductor and so on. A string.
-- Entries: The number of entries (chemical structures) in this dataset. An integer.
-- Source: Where does this dataset come from, such as an URL or DOI of an article. A string.
-- Path: The path of this dataset file (*.db) relative the root dir `./ai-database`. A string.
-
-For the sake of simplicity, only search the data by the `Elements` column if the user does not provide information 
-except the chemical elements or formulas. Please provide the corresponding SQL code according to the user's input below. 
-The SQL code should query all the information of an entry.
-
-Important: Just return the minimal necessary reply and enclose the SQL code with a markdown style block.
-"""
-
-# Globals configured at runtime
-#INFO_DB_PATH: Optional[Path] = Path(os.environ.get("INFO_DB_PATH","")).resolve()
-
-# def _resolve_db_path(db_path: Optional[Path]) -> Path:
-#     path = (db_path or INFO_DB_PATH).expanduser().resolve()
-#     if not path.exists():
-#         raise FileNotFoundError(f"Data information database not found at {path}")
-#     return path
 
 class AtomsInfoResult(TypedDict):
     """Result structure for model training"""
@@ -53,7 +37,8 @@ class QueryResult(TypedDict):
 
 def save_extxyz_to_db(extxyz_path: str, 
                       info_db_path: str,
-                      ase_db_path: str):
+                      ase_db_path: str,
+                      db_path_info: str):
     
     db = connect(ase_db_path)
     images = read(extxyz_path, format="extxyz", index=":")
@@ -65,18 +50,18 @@ def save_extxyz_to_db(extxyz_path: str,
     elements_list = sorted(list(elements_set))
     now = datetime.now()
     info_dict = {
-        "ID": f"{now.year}-{now.month}-{now.day}:{now.hour}-{now.min}-{now.second}",
+        "Date": f"{now.year}-{now.month}-{now.day}:{now.hour}-{now.min}-{now.second}",
         "Elements": "-".join(elements_list),
         "Type": "Bulk",
         "Fields": "Unknown",
         "Entries": len(images),
         "Source": "User Calculation",
-        "Path": ase_db_path
+        "Path": db_path_info
     }
     with sqlite3.connect(info_db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO dataset_info (ID, Elements, Type, Fields, Entries, Source, Path) VALUES (:ID, :Elements, :Type, :Fields, :Entries, :Source, :Path)",
+            "INSERT INTO dataset_info (Date, Elements, Type, Fields, Entries, Source, Path) VALUES (:Date, :Elements, :Type, :Fields, :Entries, :Source, :Path)",
             info_dict
         )
         conn.commit()
@@ -116,7 +101,7 @@ def validate_sql_query(sql_code: str) -> str:
     return stmt
 
 
-def query_information_database(sql_code:str, db_path:str):
+def query_information_database(sql_code:str, db_path:str)->List[Dict[str, Any]]:
     
     """
     Execute sql command on the information database.
@@ -126,44 +111,26 @@ def query_information_database(sql_code:str, db_path:str):
         db_path(str): The path of the information database. 
 
     Returns:
-        QueryResult:
-            - query (str): Echo of the sql code (stringified).
-            - count (int): Number of rows returned.
-            - ids (List[int]): Unique row ids.
-            - formulas (List[str]): Unique empirical formulas (if available).
-            - results (List[Dict[str, Any]]): One dict per row with keys:
-                { 'ID', 'Elements', 'Type', 'Fields', 'Entries', 'Source', 'Path' }.
+        A list containing the query results.
     """
 
     if len(sql_code) == 0:
-        return QueryResult(
-            query="", count=0, ids=[], formulas=[], results=[]
-        )
+        return []
     db_path = Path(db_path)
     parent_path = db_path.parent
 
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
-
         cursor = conn.cursor()
         cursor.execute(sql_code)
-        records = cursor.fetchall() #records is a dict
-
-        query    = sql_code
-        count    = len(records)
-        ids      = []
-        formulas = []
+        records = cursor.fetchall() 
         results  = []
         for record in records:
             item = {key:record[key] for key in record.keys()}
             item["Path"] = str(parent_path / item["Path"])
             results.append(item)
-            ids.append(record["ID"])
-            formulas.append(record["Elements"])
-
-        return QueryResult(
-            query=query, count=count, ids=ids, formulas=formulas, results=results
-        )
+        
+        return results
 
 #@mcp.tool()
 def read_user_structure(

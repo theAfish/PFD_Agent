@@ -99,23 +99,12 @@ def save_extxyz_to_db(extxyz_path:str):
     user_data_dir = root_dir.parent / "user_data"
     if not user_data_dir.is_dir():
         user_data_dir.mkdir()
-    db_file_path = user_data_dir / f"{time.strftime('%Y%m%d%H%M%S')}.db"
-    _save_extxyz_to_db(extxyz_path, info_db_path, db_file_path)
-
-#@mcp.tool()
-#def extract_sql_select(raw_text: str) -> str:
-#    """Extract and validate a single non-destructive SELECT statement from raw LLM text.
-#
-#    Returns empty string if no fenced SQL block is found or validation fails.
-#    """
-#    sql = extract_sql_from_text(raw_text)
-#    if not sql:
-#        return ""
-#    try:
-#        return validate_sql(sql)
-#    except ValueError:
-#        return ""
     
+    db_name = f"{time.strftime('%Y%m%d%H%M%S')}.db"
+    db_file_path = user_data_dir / db_name
+    db_path_info = "user_data" + "/" + db_name
+    _save_extxyz_to_db(extxyz_path, str(info_db_path), str(db_file_path), db_path_info)
+
 
 @mcp.tool()
 def validate_sql_code_query(sql_code: str) -> Dict[str, Any]:
@@ -133,41 +122,22 @@ def validate_sql_code_query(sql_code: str) -> Dict[str, Any]:
 # deprecated
 def query_information_database_tmp(sql_code:str)->Tuple[str, Dict[str, Any]]:
     """
-    Execute sql command on the information database. The function return a tuple of two elements:
-        - The descriptive string of the query result in markdown format. It can be represented to the user.
-        - The query result in a structured format.
-
+    Execute sql command on the information database. The function return a tuple of three elements:
         Args:
             sql_code(str): A validated single SELECT statement (no mutation keywords).
-
         Returns:
-            str: The descriptive string of the query result in a markdown table format. You can directly return it to the user.
-
-            QueryResult:
-                - query (str): Echo of the sql code (stringified).
-                - count (int): Number of rows returned.
-                - ids (List[int]): Unique row ids.
-                - formulas (List[str]): Unique empirical formulas (if available).
-                - results (List[Dict[str, Any]]): One dict per row with keys: { 'ID', 'Elements', 'Type', 'Fields', 'Entries', 'Source', 'Path' }. The meaning of these keys are
-                
-                    - ID: The global id of the dataset. An integer.
-                    - Elements: All the elements in this dataset, seperated by hyphen. A string, e.g. Al-Si-Fe.
-                    - Type: The system type of this dataset, such as Cluster, Bluk, Surface, Interface and so on. A string.
-                    - Fields: The related field of this dataset, such as Alloy, Catalysis, Semi Conductor and so on. A string.
-                    - Entries: The number of entries in this dataset. An integer.
-                    - Source: Where does this dataset come from. A string.
-                    - Path: The absolute path of the dataset file (*.db). A string. 
+            str: The descriptive string of the query result in a markdown table format. Directly return it to the user.
+            int: The number of query results.
+            list: A list containing the query results. NOTE: Don't parse it just pass it to the function `extract_query_results`
         """
 
-        #logging.info(f"inside query_information_database info_db_path = {info_db_path}")
-    query_result = _query_information_database(sql_code, info_db_path)
-        
+    result_list = _query_information_database(sql_code, info_db_path)
 
-        # The summery string is a markdown table, which contains the 
-        # ID, Elements, Type, Fields, Entries and Source, Path is omitted.
+    # The summery string is a markdown table, which contains the 
+    # id, Elements, Type, Fields, Entries and Source, Date and Path is omitted.
     summary_str = "# Summary of Query Results\n\n"
     summary_str += "You can specifically request entries by their IDs.\n\n"
-    summary_str += "| ID | Elements | Type | Fields | Entries |\n"
+    summary_str += "| id | Elements | Type | Fields | Entries |\n"
     summary_str += "|----|----------|------|--------|---------|\n"
     for row in query_result["results"]:
         summary_str += f"| {row['ID']} | {row['Elements']} | {row['Type']} | {row['Fields']} | {row['Entries']} |\n"
@@ -207,6 +177,34 @@ def query_information_database(sql_code: str) -> Dict[str, Any]:
         "datasets": dataset_summaries,
     }
 
+    for row in result_list:
+        summary_str += f"| {row['id']} | {row['Elements']} | {row['Type']} | {row['Fields']} | {row['Entries']} |\n"
+    return summary_str, len(result_list), result_list
+         
+@mcp.tool()
+def extract_query_results(id_list:List[int], query_results:list) -> None | Dict[str, Any]:
+    """
+    Extract specific items by the `id_list` from `query_results`, if `query_results` 
+    is empty or no id matches, return None.
+        Args: 
+            id_list(List[int]): The list of ids specified by the user.
+            query_results(list): Query results returned by query_information_database.
+        Returns:
+            dict: A dict which containing the results extracted from `query_results` list.
+    """
+    if len(query_results) == 0:
+        return None
+    result = {key:[] for key in query_results[0].keys()}
+    all_the_ids = [item["id"] for item in query_results]
+    for a in id_list:
+        if a in all_the_ids:
+            index = all_the_ids.index(a)
+            for key in query_results[0].keys():
+                result[key].append(query_results[index][key])
+    if len(result["id"]) == 0:
+        return None 
+    return result
+    
 @mcp.tool()
 def read_user_structure(
         structures: Union[List[Path], Path],
