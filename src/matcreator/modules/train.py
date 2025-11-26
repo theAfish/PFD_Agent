@@ -33,8 +33,10 @@ class Train(ABC):
         self.valid_data = valid_data
         self.test_data = test_data
         self.model_path = model_path
-        if model_path is not None:
+        if isinstance(model_path, Path):
             self.model_path = model_path.resolve()
+        elif isinstance(model_path, str):
+            self.model_path = Path(model_path).resolve()
         self.command = command or {}
         self.optional_files = optional_files
         self.workdir = Path(self.config.get("workdir", "./train_workspace")).absolute()
