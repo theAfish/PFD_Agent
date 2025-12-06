@@ -1,6 +1,7 @@
 from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
+from google.adk.tools.mcp_tool import MCPToolset
 from typing import Literal, Optional, Dict, Any
 from matcreator.tools.log import (
     create_workflow_log as _create_workflow_log,
@@ -33,7 +34,7 @@ Mission
 
 Before any actually calculation, you must verify with user the following critical parameters:
 - General: task type (fine-tuning or distillation), max PFD iteration numbers (default 1) and convergence criteria for model training (e.g., 0.002 eV/atom)
-- Structure building: crystal structure(s) or input structure file(s), supercell size(s), perturbation parameters (number, cell/atom displacement magnitudes).
+- Structure building: crystal structure(newly built or given structure file), supercell size(s), perturbation parameters (number, cell/atom displacement magnitudes).
 - MD: perturbation number, ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps.
 - Curation: max_sel (and chunk_size if applicable).
 - For fine-tuning, verify following:
@@ -130,11 +131,28 @@ def after_tool_callback(tool,args,tool_context,tool_response):
         )
 
 
+toolset = MCPToolset(
+    connection_params=SseServerParams(
+        url="http://localhost:50003/sse", # Or any other MCP server URL
+        sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
+    ),
+    tool_filter=[
+            "abacus_prepare_batch",
+            "check_abacus_inputs_batch",
+            "abacus_modify_input_batch",
+            "abacus_modify_stru_batch",
+            "abacus_calculation_scf_batch",
+            "collect_abacus_scf_results_batch"
+            ],
+)
+
+
 abacus_agent= abacus_agent.clone(
     update={
         "name": "abacus_agent_pfd",
         "after_tool_callback": after_tool_callback,
-        "disallow_transfer_to_parent": False
+        "disallow_transfer_to_parent": False,
+        "tools":[toolset]
         },
 )
 
@@ -172,6 +190,7 @@ pfd_agent = LlmAgent(
         ],
     after_tool_callback=after_tool_callback,
     disallow_transfer_to_peers=True,
+    #disallow_transfer_to_parent=True,
     sub_agents=[
         abacus_agent,
         dpa_agent,
