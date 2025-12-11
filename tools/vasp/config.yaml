@@ -4,7 +4,7 @@ structure_path: "/tmp/vasp_server/structures"                        # 从 MP �
 work_dir: "/tmp/vasp_server/vasp_jobs"                             
 
 # ========== 可选：Materials Project ==========
-mp_api_key: "yFJBEqWamjd5Qp17dqtN70ImApTq3JcY"                                             # 填你的 key，不用就留空
+mp_api_key: ""                                             # 填你的 key，不用就留空
 
 # ========== 重点：默认 INCAR 参数 ==========
 VASP_default_INCAR:

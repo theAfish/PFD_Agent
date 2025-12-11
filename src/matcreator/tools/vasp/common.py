@@ -113,8 +113,8 @@ def run_vasp(job_paths: Union[str, List[str], Path, List[Path]],
         raise ValueError(f"Invalid job path(s): {job_paths}. Error: {str(e)}")
     
     cwd = os.getcwd()
-    submit_type = "bohrium"    
-    # submit_type = os.environ.get("VASPAGENT_SUBMIT_TYPE", "local").lower()
+
+    submit_type = os.environ.get("VASPAGENT_SUBMIT_TYPE", "local").lower()
     if submit_type == "local":
         physical_cores = get_physical_cores()
         command_cmd = os.environ.get("VASP_COMMAND", 
