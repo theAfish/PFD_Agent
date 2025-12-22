@@ -159,7 +159,7 @@ toolset = CalculationMCPToolset(
         "get_base_model_path",
         "ase_calculation",
     ],
-    #executor_map = EXECUTOR_MAP,
+    executor_map = EXECUTOR_MAP,
     executor=executor["local"],
     #storage=STORAGE, 
 )

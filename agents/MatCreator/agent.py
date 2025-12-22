@@ -7,6 +7,7 @@ from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
 from .abacus_agent.agent import abacus_agent
 from .dpa_agent.agent import dpa_agent
+from .vasp_agent.agent import vasp_agent
 from .structure_agent.agent import structure_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 
@@ -17,7 +18,7 @@ model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
 description="""
 You are the MatCreator Agent. You route user intents to the right capability: either direct sub-agents
-(database, structure, abacus, dpa) for simple tasks, or utilize specialized coordinator agents for
+(database, structure, abacus, dpa, vasp) for simple tasks, or utilize specialized coordinator agents for
 certain complex workflows.
 """ 
 
@@ -33,8 +34,9 @@ Important:
 
 instruction ="""
 Routing logic
-- Simple, specific tasks, orchestrate and directly TRANSFER to the matching sub-agent: database_agent | abacus_agent | dpa_agent.
+- Simple, specific tasks, orchestrate and directly TRANSFER to the matching sub-agent: database_agent | abacus_agent | dpa_agent |vasp_agent
 - For complex, multi-stage workflows, delegate to specialized coordinator agent if available. 
+- For simple cration and search of structures, you can delegate to the vasp_agent.
  
 You have one specialized coordinator agent:
 1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of MD exploration, configuration filtering, labeling and model training).
@@ -84,6 +86,7 @@ root_agent = LlmAgent(
         database_agent,
         abacus_agent,
         dpa_agent,
+        vasp_agent,
         structure_agent
     ]
     )
