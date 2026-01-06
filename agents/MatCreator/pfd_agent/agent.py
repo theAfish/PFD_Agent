@@ -3,16 +3,15 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.adk.tools.mcp_tool import MCPToolset
 from typing import Literal, Optional, Dict, Any
-from matcreator.tools.log import (
-    create_workflow_log as _create_workflow_log,
-    update_workflow_log_plan,
-    read_workflow_log,
-    resubmit_workflow_log,
-    after_tool_log_callback
-    )
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
 from ..structure_agent.agent import structure_agent
+from ..callbacks import (
+    before_agent_callback,
+    after_tool_callback, #as _after_tool_callback,
+    set_session_metadata,
+    get_session_context
+)
 import os
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 
@@ -32,103 +31,51 @@ Mission
 - Orchestrate the standard PFD workflow with minimal, safe steps and clear outputs:
     building structure → MD exploration → data curation (entropy selection) → labeling → model training → check convergence.
 
-Before any actually calculation, you must verify with user the following critical parameters:
-- General: task type (fine-tuning or distillation), max PFD iteration numbers (default 1) and convergence criteria for model training (e.g., 0.002 eV/atom)
-- Structure building: crystal structure(newly built or given structure file), supercell size(s), perturbation parameters (number, cell/atom displacement magnitudes).
-- MD: perturbation number, ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps.
-- Curation: max_sel (and chunk_size if applicable).
-- For fine-tuning, verify following:
-    - ABACUS labeling: kspacing (default 0.2).
-- For distillation, verify following:
-    - DPA labeling: head (for multi-head models, default "MP_traj_v024_alldata_mixu").
-- Training: target epochs (or equivalent); training-testing data split ratio.
-- Interaction mode: chat (check with user for each step) or non-interactive batch (default, proceed if no error occurs).
+Session tracking
+- At the start of a new PFD workflow, use 'set_session_metadata' to record workflow type, goals, and other session info.
+- Use 'get_session_context' to retrieve complete session history including all tool executions grouped by workflow step.
+- The system automatically logs ALL tool executions to a database for persistent session tracking.
+- Review session context when resuming work to understand what has already been completed.
+- Periodically use 'get_session_context' during workflow execution, especially after sub-agent completions of major steps, to maintain awareness of accomplished work and make informed decisions about next actions.
 
-You have three specialized sub‑agents: 
-1. 'dpa_agent_pfd': Handles MD simulation, LABELING and TRAINING with DPA model. Delegate to it for these.
-2. 'abacus_agent_pfd': Handles DFT calculations using ABACUS software. Delegate to it for these.
-3. 'structure_agent_pfd': Handles structure building, perturbation, and entropy-based selection. Delegate to it for these.
+Before any calculation, verify with user the following critical parameters:
+- General: task type (fine-tuning or distillation), max PFD iteration numbers (default 1) and convergence criteria (e.g., 0.002 eV/atom)
+- Structure building: crystal structure (newly built or given file), supercell size(s), perturbation parameters (number, cell/atom displacement magnitudes)
+- MD: perturbation number, ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps
+- Curation: max_sel (and chunk_size if applicable)
+- For fine-tuning: ABACUS labeling parameters (kspacing default 0.2)
+- For distillation: DPA labeling parameters (head for multi-head models, default "MP_traj_v024_alldata_mixu")
+- Training: target epochs, training-testing data split ratio
+- Interaction mode: chat (check with user for each step) or non-interactive batch (default, proceed if no error)
+
+You have three specialized sub‑agents:
+1. 'dpa_agent_pfd': MD simulation, labeling with DPA, and model training
+2. 'abacus_agent_pfd': DFT calculations using ABACUS
+3. 'structure_agent_pfd': Structure building, perturbation, and entropy-based selection
 
 Workflow rules
-- Create a workflow log for NEW PFD runs; show the initial plan; refine via update_workflow_log_plan until agreed. 
-- Always call 'read_workflow_log' before delegating task to a sub-agent.
-- After each step, summarize artifacts with absolute paths and key metrics; propose the next step.
-- Repeat the cycle until reaching max iterations or convergence criteria for model training. 
+- For NEW workflows: set session metadata with workflow type and goals
+- After each step: summarize artifacts with absolute paths and key metrics; propose the next step
+- Check session context before resuming to avoid redoing completed work
+- Repeat cycles until reaching max iterations or convergence criteria
 
-Failure and resume
-- If a tool fails or is unavailable, show the exact error and propose a concrete alternative. Check with the user before proceeding.
-- To resume or resubmit, use resubmit_workflow_log then read_workflow_log to determine the next action.
+PFD Fine-tuning workflow:
+1) Structure building → 2) MD exploration → 3) Data curation (entropy) → 4) DFT labeling (ABACUS) → 5) Fine-tune model with ALL collected data
 
-Response format (strict)
-- Plan: 1–3 bullets (why these steps).
-- Action: the exact tool name you will call or the sub-agent you will delegate to.
-- Result: concise outputs with absolute paths and critical metrics (e.g., frames selected, final energy).
-- Next: the immediate next step or a final recap with follow‑ups.
+PFD Distillation workflow:
+1) Structure building → 2) MD exploration → 3) Data curation (entropy) → 4) Teacher model labeling (DPA) → 5) Train new model from scratch
+
+Failure handling
+- If a tool fails, show exact error and propose concrete alternative
+- Check with user before proceeding after errors
+- Use 'get_session_context' to review completed steps when resuming
+
+Response format
+- Plan: 1–3 bullets (why these steps)
+- Action: exact tool name or sub-agent to delegate to
+- Result: concise outputs with absolute paths and key metrics
+- Next: immediate next step or final recap
 """
-
-PFD_FT_INSTRUCTIONS = """
-The PFD fine-tuning workflow have four major steps: 
-1) Structure building: build initial structures or supercells as needed.
-2) Exploration: generate new frames using molecular dynamics (MD) simulations. 
-3) Data curation: select informative frames from the MD trajectory using entropy-based selection. You should verify the selection parameters such as chunk size, number of selections, k-nearest neighbors, cutoff distance, and entropy bandwidth before running the selection.
-4) Data labeling: perform energy and force calculations for the selected frames, using DFT calculation (e.g. ABACUS). You should verify the DFT parameters such as pseudopotentials, basis set, k-point sampling, energy cutoff, and convergence criteria before running DFT calculations.
-5) Model training: fine-tuning a machine learning force fields using the labeled data. You should verify the training parameters such as number of epochs, and validation split before running the training.
-   Always fine-tuning the base model with DFT data collected in ALL iterations.  
-
-In theory, you can run multiple iterations of the above steps to gradually improve the model performance. However, in practice, a single iteration is often sufficient to achieve good results.
-Notes: you need to verify the model style, base model path, and training strategy before training. Place them in the log header if needed.
-"""
-
-PFD_DIST_INSTRUCTIONS = """
-The PFD distillation workflow have following major steps:
-1) Structure building: build initial structures or supercells as needed.
-2) Exploration: generate new frames using molecular dynamics (MD) simulations.
-3) Data curation: select informative frames from the MD trajectory using entropy-based selection. You should verify the selection parameters such as chunk size, number of selections, k-nearest neighbors, cutoff distance, and entropy bandwidth before running the selection.
-4) Data labeling: perform energy and force calculations for the selected frames using ASE calculators (e.g., DPA). You should verify the model path, and any additional calculator parameters before running the calculations.
-5) Model training: train a machine learning force fields from scratch (Not fine-tuning!) using the labeled data. You should verify the training parameters such as number of epochs, and validation split before running the training.
-
-In theory, you can run multiple iterations of the above steps to gradually improve the model performance. However, in practice, a single iteration is often sufficient to achieve good results.
-Notes: you need to verify the model style, base model path, and training strategy before training. Place them in the log header if needed.
-"""
-
-TASK_INSTRUCTIONS = {
-    "pfd_finetune":PFD_FT_INSTRUCTIONS,
-    "pfd_distillation":PFD_DIST_INSTRUCTIONS,
-}
-def create_workflow_log(
-    workflow_name: Literal["pfd_finetune","pfd_distillation"],
-    additional_info: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Initialize a PFD workflow log and update the LOG_PATH environment variable.
-    
-    Args:
-        workflow_name: Name of the workflow, either "pfd_finetune" or "pfd_distillation".
-        additional_info: Optional additional information to include in the log. Must be dict if provided.
-
-    - Uses a timestamped file name to avoid clobbering.
-    - Stores absolute path in env LOG_PATH for subsequent updates.
-    """
-    return _create_workflow_log(
-        workflow_name=workflow_name,
-        task_instructions=TASK_INSTRUCTIONS,
-        additional_info=additional_info,
-    )
-
-allowed = {"abacus_prepare", "abacus_calculation_scf", "collect_abacus_scf_results",
-           "training","run_molecular_dynamics","filter_by_entropy","perturb_atoms"}
-name_map={
-    "abacus_prepare":"labeling_abacus_scf_preparation",
-    "abacus_calculation_scf":"labeling_abacus_scf_calculation",  
-    "collect_abacus_scf_results":"labeling_abacus_scf_collect_results",
-    "run_molecular_dynamics":"exploration_md",
-    "filter_by_entropy":"explore_filter_by_entropy"
-}
-
-def after_tool_callback(tool,args,tool_context,tool_response):
-    if getattr(tool, 'name', None) in allowed:
-        return after_tool_log_callback(
-            tool, args, tool_context, tool_response,step_name_map=name_map
-        )
 
 
 toolset = MCPToolset(
@@ -183,14 +130,12 @@ pfd_agent = LlmAgent(
     description=description,
     instruction=instruction,
     tools=[
-        create_workflow_log,
-        update_workflow_log_plan,
-        read_workflow_log,
-        resubmit_workflow_log,
+        set_session_metadata,
+        get_session_context,
         ],
+    before_agent_callback=before_agent_callback,
     after_tool_callback=after_tool_callback,
     disallow_transfer_to_peers=True,
-    #disallow_transfer_to_parent=True,
     sub_agents=[
         abacus_agent,
         dpa_agent,

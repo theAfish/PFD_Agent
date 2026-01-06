@@ -1,56 +1,51 @@
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.mcp_tool import MCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
+from google.adk.agents.callback_context import CallbackContext
 import os
 from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
 from .abacus_agent.agent import abacus_agent
 from .dpa_agent.agent import dpa_agent
-from .vasp_agent.agent import vasp_agent
+#from .vasp_agent.agent import vasp_agent
 from .structure_agent.agent import structure_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
-
+from .callbacks import (
+    before_agent_callback,
+    set_session_metadata,
+    get_session_context
+)
 
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
 description="""
-You are the MatCreator Agent. You route user intents to the right capability: either direct sub-agents
-(database, structure, abacus, dpa, vasp) for simple tasks, or utilize specialized coordinator agents for
-certain complex workflows.
+You are the MatCreator Agent. You route user intents to the right capability: either plan and direct sub-agents
+for simple tasks, or utilize specialized coordinator agents for certain complex workflows.
 """ 
 
 global_instruction = """
-You are the root orchestrator. Your job is to plan tasks, transfer control
-to the most suitable sub-agent, and then integrate results back for the user.
-Important:
-- Do NOT call a function named after an agent (e.g., "pfd_agent" or "database_agent").
-- When you need a sub-agent, TRANSFER to that agent by name.
-- Only call tools exposed by the currently active agent/session.
-- Keep responses concise; include key artifacts, paths, and next steps.
+General rules for all agents:
+- Only call tools that are available in your current context.
+- Keep responses concise; include key artifacts with absolute paths and relevant metrics.
+- When encountering errors, quote the exact error message and propose concrete solutions.
 """
 
 instruction ="""
 Routing logic
+- Use `set_session_metadata` to record/update user goals, and relevant context. Update if needed.
 - Simple, specific tasks, orchestrate and directly TRANSFER to the matching sub-agent: database_agent | abacus_agent | dpa_agent |vasp_agent
 - For complex, multi-stage workflows, delegate to specialized coordinator agent if available. 
-- For simple cration and search of structures, you can delegate to the vasp_agent.
  
 You have one specialized coordinator agent:
 1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of MD exploration, configuration filtering, labeling and model training).
 
-Decision rules (must follow)
-1. Detect user intent for available specialized workflows. When you intend to route to the coordinator (pfd_agent), ALWAYS ask for explicit user confirmation first (one concise question).
-2. If intent is ambiguous, ask one concise clarifying question before routing.
-3. Never mix tool calls from different sub-agents in the same step; each response TRANSFERs to one agent.
-
-Planning style
-- Plan minimally (1–3 bullets). Prefer quick validation subsets (small limits, short MD stage,
-    reduced epochs) before longer runs.
-- For coordinator (pfd_agent) transfers: mention that workflow log will be (created/read) and that
-    detailed planning happens inside that agent.
+Planning and execution rules (must follow)
+1. Always make a minimal plan (1–3 bullets) before executing calculation tasks.
+2. ALWAYS seek explicit user confirmation before delegating complex workflows to coordinator agents (e.g., pfd-agent).
+3. Never mix tool calls from different sub-agents in the same step; each execution transfers to one agent only.
+4. For coordinator (e.g., pfd_agent) transfers: mention that session metadata will be created/updated and that detailed step-by-step planning happens inside that specialized agent.
+5. Review session context with 'get_session_context' when resuming disrupted workflows to understand what has already been completed.
 
 Outputs
 - Always surface absolute artifact paths, key metrics (ids count, entropy gain, energies, model/log paths).
@@ -67,8 +62,39 @@ Response format (strict)
 - Result: (after agent returns) concise artifacts + metrics (absolute paths).
 - Next: immediate follow-up step or final recap.
 
-Do not call tools directly here; always TRANSFER. Never fabricate agent or tool names.
+Never fabricate agent or tool names. Always transfer to agents for actions.
 """
+
+def before_agent_callback_root(callback_context: CallbackContext):
+    """Set environment variables and initialize session metadata for MatCreator agent."""
+    session_id = callback_context._invocation_context.session.id
+    user_id = callback_context._invocation_context.session.user_id
+    app_name = callback_context._invocation_context.session.app_name
+    
+    # Set environment variables for session context
+    os.environ["CURRENT_SESSION_ID"] = session_id
+    os.environ["CURRENT_USER_ID"] = user_id
+    os.environ["CURRENT_APP_NAME"] = app_name
+    
+    # Initialize session metadata in database if not already exists
+    try:
+        from .callbacks import get_session_metadata
+        existing_metadata = get_session_metadata(session_id)
+        if not existing_metadata:
+            set_session_metadata(
+                session_id=session_id,
+                additional_metadata={"initialized_by": "root_agent"}
+            )
+    except Exception as e:
+        print(f"Warning: Failed to initialize session metadata: {e}")
+    
+    return None
+
+
+tools = [
+    set_session_metadata, 
+    get_session_context
+    ]
 
 root_agent = LlmAgent(
     name='MatCreator_agent',
@@ -80,13 +106,14 @@ root_agent = LlmAgent(
     description=description,
     instruction=instruction,
     global_instruction=global_instruction,
-    #tools=[selector_toolset],
+    before_agent_callback=before_agent_callback_root,
+    tools=tools,
     sub_agents=[
         pfd_agent,
         database_agent,
         abacus_agent,
         dpa_agent,
-        vasp_agent,
+        #vasp_agent,
         structure_agent
     ]
     )
