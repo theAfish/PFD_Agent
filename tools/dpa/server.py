@@ -16,7 +16,8 @@ from matcreator.tools.dpa import (
     training as _training,
     )
 
-load_dotenv(os.path.expanduser(".env"), override=True)
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 DPA_MODEL_PATH = "/home/ruoyu/dev/PFD-Agent/.tests/dpa/DPA2_medium_28_10M_rc0.pt"
 DPA_SERVER_WORK_PATH = "/tmp/dpa_server"
@@ -272,6 +273,7 @@ def ase_calculation(
 @mcp.tool()
 def train_input_doc() -> Dict[str, Any]:
     """
+    Check the training input document for Deep Potential model training.
     Returns:
         List metadata for training a Deep Potential model. 
         You can use these information to formulate template 'config' and 'command' dict.
@@ -325,14 +327,18 @@ def check_input(
     ) -> Any:
     """
         Validate the `config` and `command` input.
+        
+        Pay special attention to the 'finetune_mode' key in `command` dict, it is 'True' for fine-tuning and `False` otherwise.
+        
         You need to ensure that all required fields are present and correctly formatted.
+        
         If any required field is missing or incorrectly formatted, return a message indicating the issue.
+        
         Make sure to pass this validation step before proceeding to training.
         """
     return _check_input(
             config=config,
             command=command,
-            #strategy=strategy
         )
     
     
@@ -350,7 +356,7 @@ def training(
     
             Args:
                 config: Configuration parameters for training (You can find an example for `config` from the 'train_input_doc' tool').
-                command: Command parameters for training. Pay special attention to the 'finetune_mode' key in command dict, it needs to be 'True' for fine-tuning.
+                command: Command parameters for training. 
                 train_data: Path to the training dataset (required).
                 model_path (Path, optional): Path to pre-trained base model. Required for model fine-tuning.
     
