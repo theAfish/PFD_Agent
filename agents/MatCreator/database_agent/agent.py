@@ -6,6 +6,7 @@ from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 import os
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 from .sql_agent.agent import sql_agent
+from ..callbacks import after_tool_callback
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
@@ -83,6 +84,7 @@ database_agent = Agent(
         base_url=model_base_url,
         api_key=model_api_key
     ),
+    after_tool_callback=after_tool_callback,
     description=description,
     instruction=instruction,
     tools=[

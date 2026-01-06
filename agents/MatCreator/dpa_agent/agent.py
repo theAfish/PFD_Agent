@@ -6,6 +6,7 @@ from dp.agent.adapter.adk import CalculationMCPToolset
 import os
 from typing import List, Dict, Any
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
+from ..callbacks import after_tool_callback
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
@@ -22,39 +23,33 @@ validate configs, train DPA models, and run ASE-based MD and structure optimizat
 
 instruction ="""
 - Capabilities (tools)
-    - Data/Training: list_training_strategies, train_input_doc, check_train_data, check_input, training
-    - Simulation: list_calculators, get_base_model_path, run_molecular_dynamics, optimize_structure
-
-- Hard constraints (must follow)
-    - Training strategy is strictly 'dpa' only. Do not propose or call any other strategy.
-    - Simulation model_style is strictly 'dpa' only. Do not use other calculator names.
-    - Always pass strategy='dpa' to check_input and training; always pass model_style='dpa' to
-        get_base_model_path, run_molecular_dynamics, and optimize_structure.
-    - If the user asks for another strategy/calculator, respond that only 'dpa' is supported and offer
-        the closest 'dpa' alternative (e.g., set calc_args.head appropriately).
+    - Training: train_input_doc, check_train_data, check_input, training
+    - Simulation: get_base_model_path, run_molecular_dynamics, optimize_structure
 
 - Preconditions
-    - Training: have train_data; optionally split with check_train_data; validate with check_input(strategy='dpa') before training.
-    - MD/Opt: require a model path; if missing, resolve via get_base_model_path(model_style='dpa'). For multi-head DPA, set calc_args.head.
+    - Training: have train_data; optionally split with check_train_data; validate with check_input before training.
+    - MD/Opt: require a model path; if missing, resolve via get_base_model_path. For multi‑head DPA, set `head`.
 
 - Minimal flows
-    - Training (DPA only):
-        1) list_training_strategies → train_input_doc('dpa') → check_train_data(train_data, ratios?)
-        2) check_input(config, command, strategy='dpa') → training(..., strategy='dpa')
-        3) Report model and log absolute paths; include test metrics if available.
-    - MD (DPA only), must flow the order:
-        1) first:list_calculators, then: get_base_model_path(model_style='dpa', model_path?)
-        2) run_molecular_dynamics(initial_structure, stages, model_style='dpa', model_path, calc_args)
+    - Training:
+        1) read train_input_doc
+        2) check_train_data 
+        3) check_input 
+        4)training
+        5) Report model and log absolute paths; include test metrics if available.
+    - MD simulation:
+        1) get_base_model_path(model_path?)
+        2) run_molecular_dynamics(initial_structure, stages, model_path, calc_args)
         3) Report trajectory paths and log path.
-    - Optimization (DPA only):
-        1) get_base_model_path(model_style='dpa', ...)
-        2) optimize_structure(input_structure, model_style='dpa', model_path, relax_cell?)
+    - Optimization:
+        1) get_base_model_path(model_path?)
+        2) optimize_structure(input_structure, model_path, relax_cell?)
         3) Report optimized structure path and final energy.
 
 - Defaults and tips
     - Prefer quick validations first (small splits, short MD stages, modest relax steps).
     - Always return absolute artifact paths. 
-    - If a tool fails, surface the exact error and propose a minimal fix. Do not proceed until explicit user command.
+    - If a tool fails, surface the exact error and propose a minimal fix.
 
 - Response format
     - Plan: 1-3 bullets with the next step(s).
@@ -162,7 +157,8 @@ toolset = CalculationMCPToolset(
         #"list_calculators", # maybe a seperate implementation later
         "run_molecular_dynamics",
         "optimize_structure",
-        "get_base_model_path"
+        "get_base_model_path",
+        "ase_calculation",
     ],
     executor_map = EXECUTOR_MAP,
     executor=executor["local"],
@@ -183,6 +179,6 @@ dpa_agent = LlmAgent(
     tools=[
         toolset,
         list_calculators,
-        
         ],
+    after_tool_callback=after_tool_callback
 )

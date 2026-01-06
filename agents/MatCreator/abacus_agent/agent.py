@@ -7,6 +7,7 @@ from dp.agent.adapter.adk import CalculationMCPToolset
 import os
 
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
+from ..callbacks import after_tool_callback
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
@@ -24,9 +25,9 @@ instruction ="""
 Operate ABACUS safely with minimal steps and strict validation.
 
 Must‑follow sequence
-- abacus_prepare first to create an inputs directory (INPUT, STRU, pseudopotentials, orbitals). Prefer plane‑wave basis unless user requests otherwise.
+- abacus_prepare first to create an inputs directory (INPUT, STRU, pseudopotentials, orbitals).
 - check_abacus_input to validate inputs BEFORE any calculation submission.
-- Then run exactly ONE property tool per step (submission is asynchronous).
+- Then run exactly ONE calculation tool per step.
 - collect_abacus_*_results AFTER the corresponding calculation completes.
 
 
@@ -39,8 +40,6 @@ Rules
 
 Outputs
 - Report absolute paths and essential metrics (e.g., final energy). Keep summaries tight and actionable.
-
-
 
 Response format
 - Plan: 1–3 bullets.
@@ -92,37 +91,12 @@ STORAGE = {
     }
 }
 
-toolset = CalculationMCPToolset(
+toolset = MCPToolset(
     connection_params=SseServerParams(
-        url="http://localhost:50001/sse", # Or any other MCP server URL
+        url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
-    ),
-    tool_filter=[
-        "abacus_prepare",
-        "check_abacus_inputs",
-        "abacus_modify_input",
-        "abacus_modify_stru",
-        "abacus_calculation_scf",
-        "collect_abacus_scf_results"
-    ],
-    #executor_map = EXECUTOR_MAP,
-    executor=executor["local"],
-    #storage=STORAGE,
+    )
 )
-
-
-def after_agent_cb2(callback_context):
-  print('@after_agent_cb2')
-  # ModelContent (or Content with role set to 'model') must be returned.
-  # Otherwise, the event will be excluded from the context in the next turn.
-  return types.ModelContent(
-      parts=[
-          types.Part(
-              text='Handoff: return_to_parent',
-          ),
-      ],
-  )
-
 
 abacus_agent = LlmAgent(
     name='abacus_agent',
@@ -136,7 +110,5 @@ abacus_agent = LlmAgent(
     tools=[toolset],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
-    #after_tool_callback=after_tool_callback,
-    #after_agent_callback=after_agent_cb2,
-    
+    after_tool_callback=after_tool_callback,
 )
