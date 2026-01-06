@@ -5,6 +5,7 @@ from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 import os
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
+from ..callbacks import after_tool_callback
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code.
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
@@ -89,5 +90,6 @@ structure_agent = Agent(
     instruction=instruction,
     tools=[
         toolset,
-    ]
+    ],
+    after_tool_callback=after_tool_callback
 )

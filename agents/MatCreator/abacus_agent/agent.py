@@ -7,6 +7,7 @@ from dp.agent.adapter.adk import CalculationMCPToolset
 import os
 
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
+from ..callbacks import after_tool_callback
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
@@ -109,7 +110,5 @@ abacus_agent = LlmAgent(
     tools=[toolset],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
-    #after_tool_callback=after_tool_callback,
-    #after_agent_callback=after_agent_cb2,
-    
+    after_tool_callback=after_tool_callback,
 )
