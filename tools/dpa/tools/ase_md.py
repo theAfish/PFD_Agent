@@ -1,15 +1,16 @@
 import json
 import time
 import logging
+import os
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, Sequence, List
+from typing import Optional, Dict, Any, Union, Sequence, List, Tuple
 from dataclasses import dataclass, asdict, field
 
 import ase
 import numpy as np
 from ase import Atoms, units
-from ase.io import read
+from ase.io import read,write
 from ase.io.trajectory import Trajectory
 from ase.md.langevin import Langevin
 from ase.md.nose_hoover_chain import NoseHooverChainNVT
@@ -19,9 +20,37 @@ from ase.md.analysis import DiffusionCoefficient
 from ase.optimize import LBFGS
 from ase.filters import UnitCellFilter, ExpCellFilter
 
-from dpdispatcher import Machine, Resources, Task, Submission
+from deepmd.calculator import DP
 
-from crysgen.constants import ase_log_name, ase_traj_name
+from dpdispatcher import Machine, Resources, Task, Submission
+from dflow import (
+    InputParameter,
+    Inputs,
+    OutputParameter,
+    Outputs,
+    Step,
+    Steps,
+)
+from dflow.python import (
+    OP,
+    OPIO,
+    BigParameter,
+    OPIOSign,
+    PythonOPTemplate,
+    Artifact,
+    TransientError
+)
+
+from .utils import set_directory
+
+
+ase_conf_name = "structure.extxyz"
+ase_input_name = "ase.json"
+ase_log_name = "ase.log"
+ase_traj_name = "traj.traj"
+
+import logging
+logger = logging.getLogger(__name__)
 
 @dataclass
 class MDParameters:
@@ -263,7 +292,7 @@ class MDRunner:
         log_dir: Optional[Union[str, Path]] = None,
         traj_dir: Optional[Union[str, Path]] = None,
         **kwargs,
-    ) -> None:
+    ) -> Dict[str,Any]:
         """Run multiple MD stages sequentially using the single-stage helpers.
 
         Each entry in ``stages`` may be an ``MDParameters`` instance or a
@@ -278,7 +307,7 @@ class MDRunner:
         if isinstance(stages, (MDParameters, dict)):
             stages = [stages]
 
-        self._run_md_stages_collect(stages, log_dir=log_dir, traj_dir=traj_dir)
+        return self._run_md_stages_collect(stages, log_dir=log_dir, traj_dir=traj_dir)
 
     def _run_md_stages_collect(
         self,
@@ -505,187 +534,246 @@ class MDRunner:
 
 
 
-def _copy_into(workdir: Path, source: Path) -> Path:
-    """Copy a file or directory into *workdir* and return the destination path."""
-    dest = workdir / source.name
-    if source.is_dir():
-        shutil.copytree(source, dest, dirs_exist_ok=True)
-    else:
-        shutil.copy2(source, dest)
-    return dest
 
 
-def prepare_task_group(
-    task_specs: Sequence[Dict[str, Any]],
-    base_workdir: Union[str, Path],
-    *,
-    md_filename: str = "md_params.json",
-    shared_files: Optional[Sequence[Union[str, Path]]] = None,
-    overwrite: bool = False,
-) -> List[Dict[str, Any]]:
-    """Create task folders populated with MD inputs.
 
-    Each entry in ``task_specs`` must provide at least ``structure`` (path to an
-    ASE-readable structure) and ``md_params`` (``MDParameters`` instance or a
-    plain dict). Optional keys:
+class PrepareMDTaskGroupOP(OP):
+    """OP that wraps ``_prepare_task_group_impl`` for DFlow."""
 
-    - ``name``: folder name; auto-generated when omitted.
-    - ``extra_files``: iterable of files/dirs copied alongside the JSON config.
-    - ``backward_files``: list of patterns for dpdispatcher to bring back.
+    @classmethod
+    def get_input_sign(cls):
+        return OPIOSign({"structure_paths": Artifact(List[Path])})
 
-    Returns a list of task metadata dictionaries suitable for
-    ``execute_task_group``.
+    @classmethod
+    def get_output_sign(cls):
+        return OPIOSign({"task_group": Artifact(List[Path])})
+
+    @OP.exec_sign_check
+    def execute(self, ip: OPIO) -> OPIO:
+        structure_paths=ip["structure_paths"]
+        atoms_ls=[]
+        if isinstance(structure_paths,str):
+            structure_paths = [structure_paths]
+        
+        try:
+            for structure_path in structure_paths:
+                atoms_ls.extend(read(structure_path,index=':'))
+        except Exception as e:
+            logger.exception("Failed to read structures: %s",e)
+            raise
+    
+        task_dir_ls=[]
+        for i, atoms in enumerate(atoms_ls):
+            task_dir = Path(f"task.{i:05d}") 
+            try:
+                task_dir.mkdir(parents=True, exist_ok=True)
+                struct_file = task_dir / ase_conf_name
+                write(str(struct_file),atoms)
+            except Exception:
+                logger.exception("Failed to write structure for %s", task_dir)
+                continue
+            task_dir_ls.append(task_dir)
+        return OPIO({"task_group": task_dir_ls})
+
+
+class RunASE(OP):
+    r"""Execute a ASE MD task.
+
+    A working directory named `task_name` is created. All input files
+    are copied or symbol linked to directory `task_name`. The LAMMPS
+    command is exectuted from directory `task_name`. The trajectory
+    and the model deviation will be stored in files `op["traj"]` and
+    `op["model_devi"]`, respectively.
+
     """
 
-    if not task_specs:
-        return []
-
-    base_dir = Path(base_workdir).expanduser().resolve()
-    base_dir.mkdir(parents=True, exist_ok=True)
-    shared_paths: List[Path] = []
-    for shared in shared_files or []:
-        shared_path = Path(shared).expanduser().resolve()
-        if not shared_path.exists():
-            raise FileNotFoundError(f"Shared file not found: {shared_path}")
-        shared_paths.append(shared_path)
-
-    task_group: List[Dict[str, Any]] = []
-    for idx, spec in enumerate(task_specs, start=1):
-        name = spec.get("name") or f"task_{idx:04d}"
-        workdir = base_dir / name
-        if workdir.exists():
-            if overwrite:
-                shutil.rmtree(workdir)
-            else:
-                raise FileExistsError(f"Workdir already exists: {workdir}")
-        workdir.mkdir(parents=True, exist_ok=True)
-
-        structure_src = Path(spec["structure"]).expanduser().resolve()
-        if not structure_src.exists():
-            raise FileNotFoundError(f"Structure file not found: {structure_src}")
-        structure_dst = _copy_into(workdir, structure_src)
-
-        md_params = spec.get("md_params", {})
-        if isinstance(md_params, MDParameters):
-            md_payload = asdict(md_params)
-        else:
-            md_payload = dict(md_params)
-        md_file = workdir / md_filename
-        with open(md_file, "w", encoding="utf-8") as fh:
-            json.dump(md_payload, fh, indent=4)
-
-        copied_files: List[Path] = []
-        for extra in spec.get("extra_files", []):
-            extra_path = Path(extra).expanduser().resolve()
-            if not extra_path.exists():
-                raise FileNotFoundError(f"Extra file not found: {extra_path}")
-            copied_files.append(_copy_into(workdir, extra_path))
-        for shared in shared_paths:
-            copied_files.append(_copy_into(workdir, shared))
-
-        forward_files = [structure_dst.name, md_file.name]
-        forward_files.extend(p.name for p in copied_files)
-        # Deduplicate while preserving order
-        seen: set = set()
-        deduped: List[str] = []
-        for fname in forward_files:
-            if fname in seen:
-                continue
-            seen.add(fname)
-            deduped.append(fname)
-        forward_files = deduped
-
-        task_group.append(
+    @classmethod
+    def get_input_sign(cls):
+        return OPIOSign(
             {
-                "name": name,
-                "workdir": workdir,
-                "md_file": md_file,
-                "structure_file": structure_dst,
-                "forward_files": forward_files,
-                "backward_files": list(spec.get("backward_files", [])),
+                "config": BigParameter(dict),
+                "task_name": BigParameter(str),
+                "task_path": Artifact(Path),
+                "models": Artifact(List[Path]),
             }
         )
 
-    return task_group
-
-
-def execute_task_group(
-    task_group: Sequence[Dict[str, Any]],
-    machine_conf: Dict[str, Any],
-    resources_conf: Dict[str, Any],
-    *,
-    command_template: str = "python run_md.py --config {md_file}",
-    forward_common_files: Optional[Sequence[Union[str, Path]]] = None,
-    backward_common_files: Optional[Sequence[Union[str, Path]]] = None,
-    exit_on_submit: bool = True,
-) -> Submission:
-    """Submit prepared tasks to a remote machine via dpdispatcher."""
-
-    if not task_group:
-        raise ValueError("task_group is empty; run prepare_task_group first.")
-
-    machine = Machine.load_from_dict(machine_conf)
-    resources = Resources.load_from_dict(resources_conf)
-
-    tasks: List[Task] = []
-    for meta in task_group:
-        format_ctx = {
-            "task_name": meta["name"],
-            "workdir": meta["workdir"],
-            "md_file": meta["md_file"].name,
-            "md_file_path": meta["md_file"],
-            "structure_file": meta["structure_file"].name,
-            "structure_file_path": meta["structure_file"],
-        }
-        command = command_template.format(**{k: str(v) for k, v in format_ctx.items()})
-        task = Task(
-            command=command,
-            task_work_path=str(meta["workdir"]),
-            forward_files=list(meta.get("forward_files", [])),
-            backward_files=list(meta.get("backward_files", [])),
+    @classmethod
+    def get_output_sign(cls):
+        return OPIOSign(
+            {
+                "log": Artifact(Path),
+                "traj": Artifact(Path),
+                "optional_output": Artifact(Path, optional=True),
+            }
         )
-        tasks.append(task)
 
-    work_base = Path(task_group[0]["workdir"]).parent
-    submission = Submission(
-        work_base=str(work_base),
-        machine=machine,
-        resources=resources,
-        task_list=tasks,
-        forward_common_files=[str(Path(p)) for p in forward_common_files or []],
-        backward_common_files=[str(Path(p)) for p in backward_common_files or []],
-    )
-    submission.run_submission(exit_on_submit=exit_on_submit)
-    return submission
+    @OP.exec_sign_check
+    def execute(
+        self,
+        ip: OPIO,
+    ) -> OPIO:
+        r"""Execute the OP.
+
+        Parameters
+        ----------
+        ip : dict
+            Input dict with components:
+
+            - `config`: (`dict`) The config of lmp task. Check `RunLmp.lmp_args` for definitions.
+            - `task_name`: (`str`) The name of the task.
+            - `task_path`: (`Artifact(Path)`) The path that contains all input files prepareed by `PrepLmp`.
+            - `models`: (`Artifact(List[Path])`) The frozen model to estimate the model deviation. The first model with be used to drive molecular dynamics simulation.
+
+        Returns
+        -------
+        Any
+            Output dict with components:
+            - `log`: (`Artifact(Path)`) The log file of LAMMPS.
+            - `traj`: (`Artifact(Path)`) The output trajectory.
+            - `model_devi`: (`Artifact(Path)`) The model deviation. The order of recorded model deviations should be consistent with the order of frames in `traj`.
+
+        Raises
+        ------
+        TransientError
+            On the failure of LAMMPS execution. Handle different failure cases? e.g. loss atoms.
+        """
+        config = ip["config"] if ip["config"] is not None else {}
+        config = RunASE.normalize_config(config)
+        stages=ip["stages"]
+        task_path = ip["task_path"]
+        model_path = ip["models"]
+        head=ip["head"]
+        input_files = [ii.resolve() for ii in Path(task_path).iterdir()]
+        work_dir = Path(Path(task_path).name)
+
+        with set_directory(work_dir):
+            # link input files
+            for ii in input_files:
+                iname = ii.name
+                Path(iname).symlink_to(ii)
+            # instantiate calculator
+            calc=DP(model=model_path, head=head)
+            # instantiate MDRunner
+            atoms=read(ase_conf_name,index=0)
+            md_runner = MDRunner(atoms)
+            md_runner.set_calculator(calc)
+            try:
+                res = md_runner.run_md_stages(stages)
+                traj = Path(res["last_traj"])
+                with open("params.json",'w') as fp:
+                    json.dump(res["params"],fp)
+            except Exception as e:
+                raise TransientError(f"ASE MD/relax failed: {e}")
+        return OPIO({
+            "traj":work_dir / traj.name,
+            "params" : work_dir / "params.json"
+        })
 
 
-def collect_task_results(
-    task_group: Sequence[Dict[str, Any]],
-    *,
-    required_patterns: Optional[Sequence[str]] = None,
-) -> Dict[str, Dict[str, Any]]:
-    """Check returned files for each task directory.
 
-    ``required_patterns`` defaults to ``("*.log", "*.traj")``. The function
-    returns a mapping of task name to a dict summarizing discovered outputs and
-    any missing patterns.
-    """
+class PrepRunCollectMDTasks(Steps):
+    """DFlow Steps wiring preparation, submission, and collection for MD tasks."""
 
-    patterns = tuple(required_patterns or ("*.log", "*.traj"))
-    summary: Dict[str, Dict[str, Any]] = {}
-    for meta in task_group:
-        workdir = Path(meta["workdir"]).expanduser()
-        outputs: Dict[str, List[Path]] = {}
-        missing: List[str] = []
-        for pattern in patterns:
-            matches = sorted(workdir.glob(pattern))
-            outputs[pattern] = matches
-            if not matches:
-                missing.append(pattern)
-        summary[meta["name"]] = {
-            "workdir": workdir,
-            "outputs": outputs,
-            "missing": missing,
-            "status": "success" if not missing else "incomplete",
+    def __init__(
+        self,
+        *,
+        name: str = "prep-run-collect-md",
+        upload_python_packages: Optional[List[Union[str, os.PathLike]]] = None,
+        prep_step_kwargs: Optional[Dict[str, Any]] = None,
+        execute_step_kwargs: Optional[Dict[str, Any]] = None,
+        collect_step_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        self._input_parameters = {
+            "task_specs": InputParameter(type=list),
+            "base_workdir": InputParameter(type=str),
+            "md_filename": InputParameter(type=str, value="md_params.json"),
+            "shared_files": InputParameter(type=list, value=tuple()),
+            "overwrite": InputParameter(type=bool, value=False),
+            "machine_conf": InputParameter(type=dict),
+            "resources_conf": InputParameter(type=dict),
+            "command_template": InputParameter(
+                type=str, value="python run_md.py --config {md_file}"
+            ),
+            "forward_common_files": InputParameter(type=list, value=tuple()),
+            "backward_common_files": InputParameter(type=list, value=tuple()),
+            "exit_on_submit": InputParameter(type=bool, value=True),
+            "required_patterns": InputParameter(type=list, value=("*.log", "*.traj")),
         }
-    return summary
+        self._input_artifacts = {}
+        self._output_parameters = {
+            "task_group": OutputParameter(),
+            "submission_summary": OutputParameter(),
+            "result_summary": OutputParameter(),
+        }
+        self._output_artifacts = {}
+
+        super().__init__(
+            name=name,
+            inputs=Inputs(parameters=self._input_parameters, artifacts=self._input_artifacts),
+            outputs=Outputs(parameters=self._output_parameters, artifacts=self._output_artifacts),
+        )
+
+        prep_kwargs = prep_step_kwargs or {}
+        execute_kwargs = execute_step_kwargs or {}
+        collect_kwargs = collect_step_kwargs or {}
+
+        prep_step = Step(
+            name="prep-md-tasks",
+            template=PythonOPTemplate(
+                PrepareMDTaskGroupOP,
+                python_packages=upload_python_packages,
+            ),
+            parameters={
+                "task_specs": self.inputs.parameters["task_specs"],
+                "base_workdir": self.inputs.parameters["base_workdir"],
+                "md_filename": self.inputs.parameters["md_filename"],
+                "shared_files": self.inputs.parameters["shared_files"],
+                "overwrite": self.inputs.parameters["overwrite"],
+            },
+            **prep_kwargs,
+        )
+        self.add(prep_step)
+
+        execute_step = Step(
+            name="execute-md-tasks",
+            template=PythonOPTemplate(
+                ExecuteMDTaskGroupOP,
+                python_packages=upload_python_packages,
+            ),
+            parameters={
+                "task_group": prep_step.outputs.parameters["task_group"],
+                "machine_conf": self.inputs.parameters["machine_conf"],
+                "resources_conf": self.inputs.parameters["resources_conf"],
+                "command_template": self.inputs.parameters["command_template"],
+                "forward_common_files": self.inputs.parameters["forward_common_files"],
+                "backward_common_files": self.inputs.parameters["backward_common_files"],
+                "exit_on_submit": self.inputs.parameters["exit_on_submit"],
+            },
+            **execute_kwargs,
+        )
+        self.add(execute_step)
+
+        collect_step = Step(
+            name="collect-md-results",
+            template=PythonOPTemplate(
+                CollectMDTaskResultsOP,
+                python_packages=upload_python_packages,
+            ),
+            parameters={
+                "task_group": execute_step.outputs.parameters["task_group"],
+                "required_patterns": self.inputs.parameters["required_patterns"],
+            },
+            **collect_kwargs,
+        )
+        self.add(collect_step)
+
+        self.outputs.parameters["task_group"].value_from_parameter = prep_step.outputs.parameters[
+            "task_group"
+        ]
+        self.outputs.parameters["submission_summary"].value_from_parameter = (
+            execute_step.outputs.parameters["submission_summary"]
+        )
+        self.outputs.parameters["result_summary"].value_from_parameter = (
+            collect_step.outputs.parameters["result_summary"]
+        )
