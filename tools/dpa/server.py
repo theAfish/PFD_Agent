@@ -776,10 +776,19 @@ def run_molecular_dynamics(
         ...     seed=42
         ... )
     """
+    import dpa_tool
+    import dflow
+    import ase 
     
     work_path=Path(generate_work_path())
     work_path = work_path.resolve()
     work_path.mkdir(parents=True, exist_ok=True)
+    python_packages=[]
+    python_packages.append(list(dpa_tool.__path__)[0])
+    python_packages.append(list(ase.__path__)[0])
+    python_packages.append(list(dflow.__path__)[0])
+    
+    print(python_packages)
         
     if mode == 'bohrium':
         debug=False
@@ -793,7 +802,7 @@ def run_molecular_dynamics(
             run_md_config={
                 "template_config": {
                     "image":os.environ["BOHRIUM_DPA_IMAGE"],
-                    "python_packages":[]
+                    "python_packages":python_packages
                     },
                 "template_slice_config": {"group_size": 1, "pool_size": 1},
                 "executor": DispatcherExecutor(
@@ -808,7 +817,10 @@ def run_molecular_dynamics(
                             "scass_type": os.environ["BOHRIUM_DPA_MACHINE"]}}})}
             
             prep_md_config={
-                "template_config": {"image":os.environ["BOHRIUM_DPA_IMAGE"]},
+                "template_config": {
+                    "image":os.environ["BOHRIUM_DPA_IMAGE"],
+                    "python_packages":python_packages
+                    },
                 "executor": DispatcherExecutor(
                     image_pull_policy="IfNotPresent",
                     machine_dict={
@@ -818,7 +830,7 @@ def run_molecular_dynamics(
                             "input_data": {
                             "job_type": "container",
                             "platform": "ali",
-                            "scass_type": "c2_m4"
+                            "scass_type": "c2_m4_cpu"
                             }}})}
             
             

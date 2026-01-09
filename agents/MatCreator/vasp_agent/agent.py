@@ -1,6 +1,6 @@
 from google.adk.agents import  LlmAgent,BaseAgent,Agent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.mcp_tool import MCPToolset
+from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from dp.agent.adapter.adk import CalculationMCPToolset
 import os, json
@@ -73,7 +73,7 @@ STORAGE = {
 
 
 # tools hosted by MCP server
-toolset = MCPToolset(
+toolset = McpToolset(
     connection_params=SseServerParams(
         url="http://localhost:50005/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds

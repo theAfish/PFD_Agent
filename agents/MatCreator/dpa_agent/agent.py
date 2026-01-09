@@ -1,6 +1,6 @@
-from google.adk.agents import  LlmAgent,BaseAgent,Agent
+from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.mcp_tool import MCPToolset
+from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from dp.agent.adapter.adk import CalculationMCPToolset
 import os
@@ -142,9 +142,8 @@ def list_calculators() -> List[Dict[str, Any]]:
 
 
 # tools hosted by MCP server
-toolset = CalculationMCPToolset(
+toolset = McpToolset(
     connection_params=SseServerParams(
-        #url="https://kyuz1150126.bohrium.tech:50001/sse", # Or any other MCP server URL
         url="http://localhost:50002/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
@@ -153,15 +152,13 @@ toolset = CalculationMCPToolset(
         "check_input",
         "training",
         "train_input_doc",
-        #"list_training_strategies", # maybe we need a seperate implementation later
-        #"list_calculators", # maybe a seperate implementation later
         "run_molecular_dynamics",
         "optimize_structure",
         "get_base_model_path",
         "ase_calculation",
     ],
-    executor_map = EXECUTOR_MAP,
-    executor=executor["local"],
+    #executor_map = EXECUTOR_MAP,
+    #executor=executor["local"],
     #storage=STORAGE, 
 )
 

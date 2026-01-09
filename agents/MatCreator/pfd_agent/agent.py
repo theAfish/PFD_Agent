@@ -1,8 +1,9 @@
 from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
-from google.adk.tools.mcp_tool import MCPToolset
-from typing import Literal, Optional, Dict, Any
+from google.adk.tools.mcp_tool import McpToolset
+from dp.agent.adapter.adk import CalculationMCPToolset
+
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
 from ..vasp_agent.agent import vasp_agent
@@ -79,7 +80,7 @@ Response format
 """
 
 
-toolset = MCPToolset(
+toolset = McpToolset(
     connection_params=SseServerParams(
         url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
@@ -146,7 +147,7 @@ pfd_agent = LlmAgent(
     sub_agents=[
         abacus_agent,
         dpa_agent,
-        vasp_agent
+        vasp_agent,
         structure_agent
     ]
 )
