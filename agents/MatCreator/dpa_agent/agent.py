@@ -7,7 +7,10 @@ import os
 from typing import List, Dict, Any
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 from ..callbacks import after_tool_callback
-
+from dotenv import load_dotenv
+from pathlib import Path
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)

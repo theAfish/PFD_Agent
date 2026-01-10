@@ -15,14 +15,16 @@ from ..callbacks import (
     get_session_context
 )
 import os
-from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
+from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
+from dotenv import load_dotenv
+from pathlib import Path
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
-bohrium_username = os.environ.get("BOHRIUM_USERNAME", BOHRIUM_USERNAME)
-bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
-bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
+
 
 description="""
 The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS/VASP tasks to specialized sub-agents.
