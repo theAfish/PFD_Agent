@@ -6,6 +6,7 @@ import os
 import logging
 from typing import Dict, Any, List
 from google.adk.agents import LlmAgent, InvocationContext
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.events import Event, EventActions
 from google.genai.types import Content, Part
@@ -23,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 _EXECUTION_INSTRUCTION = """
 You are the execution agent. Your sole responsibility is to execute an approved plan by delegating to domain agents.
+
+Goal: {goal}
+Plan: {plan}
 
 **Your task:**
 - Read the approved plan from session state
@@ -52,7 +56,7 @@ class ExecutionAgent(LlmAgent):
         # Read plan and guidance from session state
         plan = ctx.session.state.get('plan')
         goal = ctx.session.state.get('goal', '')
-        workflow_type = plan.get('workflow_type', 'default') if plan else 'default'
+        #workflow_type = plan.get('workflow_type', 'default') if plan else 'default'
         workflow_guidance = ctx.session.state.get('workflow_guidance', '')
         
         if not plan:
@@ -64,7 +68,12 @@ class ExecutionAgent(LlmAgent):
             return
         
         # Mark execution as started
-        state_update = {"execution_started": True, "execution_complete": False}
+        state_update = {
+            "phase": "execution",
+            "execution_started": True,
+            "execution_complete": False,
+            "goal_achieved": False,
+        }
         event_action = EventActions(state_delta=state_update)
         yield Event(
             content=Content(parts=[Part(text=f"🚀 Starting execution: {goal}")]),
@@ -76,11 +85,9 @@ class ExecutionAgent(LlmAgent):
         
         # Build execution context with workflow-specific guidance
         execution_context = f"""
-**Workflow Type:** {workflow_type}
 **Goal:** {goal}
 
 **Approved Plan to Execute:**
-{self._format_plan(plan)}
 
 {workflow_guidance}
 
@@ -91,7 +98,7 @@ After each agent completes, summarize the results before moving to the next step
         
         # Inject execution context into instruction
         original_instruction = self.instruction
-        self.instruction = _EXECUTION_INSTRUCTION + "\n\n" + execution_context
+        self.instruction = _EXECUTION_INSTRUCTION #+ "\n\n" + execution_context
         
         # Execute by delegating to LLM with domain agents available
         try:
@@ -121,6 +128,15 @@ After each agent completes, summarize the results before moving to the next step
             )
         return '\n'.join(lines)
 
+# After agent callback
+def after_agent_callback(callback_context: CallbackContext):
+    """Set environment variables and initialize session state for MatCreator agent."""
+    callback_context.state['phase'] = 'thinking'
+    return None
+
+def return_weather():
+    '''Get weather temperature'''
+    return {"city":"Beijing","temperature":"12 Celcius"}
 
 # Create execution agent instance with domain agents as sub-agents
 execution_agent = ExecutionAgent(
@@ -135,7 +151,9 @@ execution_agent = ExecutionAgent(
     after_tool_callback=after_tool_callback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
-    sub_agents=list(SUBAGENTS.values())
+    after_agent_callback=after_agent_callback,
+    tools=[return_weather]
+    #sub_agents=list(SUBAGENTS.values())
 )
 
 
