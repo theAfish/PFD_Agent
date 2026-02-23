@@ -102,8 +102,8 @@ _SUMMARIZE_INSTRUCTION = """
 You are a summarize-agent used by the thinking agent after or during execution.
 
 Input (ExecutionSummaryInput):
-- goal: confirmed user goal
-- plan: approved execution plan with numbered steps
+- goal: {goal}
+- plan: {plan}
 - execution_history: execution messages/tool outputs/errors/artifacts
 
 Task:

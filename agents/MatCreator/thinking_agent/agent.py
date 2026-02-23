@@ -10,8 +10,6 @@ Architecture mirrors database_agent / sql_agent:
 from __future__ import annotations
 
 import os
-from typing import Literal, List
-import json
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.models import llm_response
@@ -28,6 +26,20 @@ from .planning_agent.agent import plan_builder_agent
 from .summarize_agent.agent import summarize_agent
 from .skill_search_agent.skill import _load_skill_registry
 from .skill_search_agent.agent import skill_search_tool_agent
+from .memory import load_memory
+from .memory import update_memory
+from ..constants import _KNOWLEDGE_PATH
+
+def _load_glossary() -> str:
+    """Load domain glossary from skills/glossary.md for injection into agent prompts."""
+    glossary_path =  _KNOWLEDGE_PATH / "glossary.md"
+    try:
+        with open(os.path.abspath(glossary_path), "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+_DOMAIN_GLOSSARY = _load_glossary()
 
 _model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
@@ -61,11 +73,11 @@ class ApprovalAssessment(BaseModel):
     )
 
 _CLASSIFICATION_INSTRUCTION = f"""
-You are a workflow-classifier sub-agent used as a tool by the thinking agent.
+You are an agent that determine user goal.
 
-Task:
-- Infer the user's goal as one concise sentence.
-- Provide short reasoning.
+## Task
+- Infer the user's goal as one concise sentence using the correct domain terminology above.
+- Provide short reasoning explaining which workflow type applies.
 """
 
 _APPROVAL_INSTRUCTIION ="""
@@ -80,17 +92,20 @@ Analyze the user's response and determine:
 Did they approve the plan?
 Do they want modifications?
 Do they need clarification?
+
+Output in json format
 """
 
 _THINKING_INSTRUCTION = """
-You are the thinking agent operating in phase="thinking".
+You are the central brain for planning and supervising the fine-tuning, testing and application of 
+machine-learning force field.
 
-You orchestrate planning through five tool sub-agents:
+You orchestrate planning through tool sub-agents:
 - intent_tool_agent              : determine user's goal
-- skill_search_tool_agent        : searches skills based on user's goal
-- plan_builder_agent             : drafts a detailed ExecutionPlan given goal/workflow/guidance
-- assessment_agent               : evaluates user replies (goal confirmation, plan approval, execution assessment)
+- plan_builder_agent             : drafts a detailed ExecutionPlan
+- assessment_tool_agent               : evaluates user replies (goal confirmation, plan approval, execution assessment)
 - summarize_agent                : summarizes execution results from goal, plan, and execution history
+- update_memory(new_entries)     : appends new knowledge to MEMORY.md
 
 You keep track of these state to decide what to do:
 - Goal: {goal} 
@@ -99,15 +114,9 @@ You keep track of these state to decide what to do:
 
 Approval gate:
 - Always check with user after running `intent_tool_agent`.
-- Never move to execution phase without explicit user approval.
+- Call `assessment_tool_agent` before moving to execution.
 - If the user requests changes or asks questions, remain in thinking phase.
 """
-#Responsibilities:
-#1) On first user message: call workflow_classifier_tool_agent to propose goal/workflow.
-#2) Before plan creation: call skill_search_tool_agent.
-#3) After skill retrieval: call plan_builder_agent.
-#4) After presenting the plan: call assessment_agent to evaluate user's approval response.
-#5) After execution: call summarize_agent to produce structured summary.
 
 # ---------------------------------------------------------------------------
 # Sub-agents used as tools
@@ -134,7 +143,7 @@ assessment_tool_agent = LlmAgent(
         base_url=_model_base_url,
         api_key=_model_api_key,
     ),
-    description="Assess user approvement.",
+    description="Assess user approval for EXECUTION. ONLY call after explicit user response",
     instruction=_APPROVAL_INSTRUCTIION,
     output_schema=ApprovalAssessment,
     disallow_transfer_to_parent=True,
@@ -155,14 +164,18 @@ def before_tool_callback(
     """Inject state variables before specific agent tools are called."""
     if tool.name == "plan_builder_agent":
         tool_context.state["agents"] = format_subagent_descriptions()
-    
-    if tool.name == "skill_search_tool_agent":
+        tool_context.state["memory"] = load_memory()
+
+    if tool.name == "intent_tool_agent":
+        tool_context.state["memory"] = load_memory()
+
+    if tool.name == "plan_builder_agent":
         registry = _load_skill_registry()
         lines = []
         for skill in registry.values():
             tags_str = ", ".join(skill.tags) if skill.tags else "none"
-            lines.append(f"- {skill.name}: {skill.description} (tags: {tags_str})")
-        skills_text = "\n".join(lines) if lines else "No skills available."
+            lines.append(f"- {skill.name}: {skill.description} - Instruction {skill.instruction})")
+        skills_text = "\n\n".join(lines) if lines else "No skills available."
         tool_context.state["skills"] = skills_text
     return None  # always return None to let the tool proceed normally
 
@@ -196,6 +209,7 @@ def after_tool_modifier(
         
     elif tool_name == 'plan_builder_agent':
         tool_context.state['plan'] = tool_response
+        tool_context.state['detailed_steps']=tool_response.get('steps')
         
     elif tool_name == 'assessment_tool_agent':
         tool_context.state['approval'] = tool_response.get('approved')    
@@ -209,7 +223,8 @@ def after_tool_modifier(
 
 # After model modfier
 def after_model_modifier(
-    callback_context: CallbackContext, llm_response: llm_response
+    callback_context: CallbackContext, 
+    llm_response: llm_response
 ) -> Optional[Dict]:
     """Inspects/modifies the tool result after execution."""
     
@@ -232,6 +247,7 @@ thinking_agent = LlmAgent(
         model=_model_name,
         base_url=_model_base_url,
         api_key=_model_api_key,
+        extra_body={"enable_thinking": False}
     ),
     description=(
         "Thinking-phase orchestrator. Classifies workflow, creates structured execution plans, "
@@ -245,7 +261,8 @@ thinking_agent = LlmAgent(
         AgentTool(plan_builder_agent),
         AgentTool(assessment_tool_agent),
         AgentTool(summarize_agent),
-        AgentTool(skill_search_tool_agent)
+        #AgentTool(skill_search_tool_agent),
+        update_memory,
     ],
     before_agent_callback=before_agent_callback,
     before_tool_callback=before_tool_callback,

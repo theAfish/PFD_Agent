@@ -25,8 +25,7 @@ logger = logging.getLogger(__name__)
 _EXECUTION_INSTRUCTION = """
 You are the execution agent. Your sole responsibility is to execute an approved plan by delegating to domain agents.
 
-Goal: {goal}
-Plan: {plan}
+Steps: {detailed_steps}
 
 **Your task:**
 - Read the approved plan from session state
@@ -56,8 +55,6 @@ class ExecutionAgent(LlmAgent):
         # Read plan and guidance from session state
         plan = ctx.session.state.get('plan')
         goal = ctx.session.state.get('goal', '')
-        #workflow_type = plan.get('workflow_type', 'default') if plan else 'default'
-        workflow_guidance = ctx.session.state.get('workflow_guidance', '')
         
         if not plan:
             logger.error("No plan found in session state")
@@ -84,17 +81,6 @@ class ExecutionAgent(LlmAgent):
         logger.info(f"Starting execution of plan: {goal}")
         
         # Build execution context with workflow-specific guidance
-        execution_context = f"""
-**Goal:** {goal}
-
-**Approved Plan to Execute:**
-
-{workflow_guidance}
-
-**Instructions:**
-Execute each step in sequence by transferring to the appropriate domain agent.
-After each agent completes, summarize the results before moving to the next step.
-"""
         
         # Inject execution context into instruction
         original_instruction = self.instruction
@@ -104,7 +90,6 @@ After each agent completes, summarize the results before moving to the next step
         try:
             async for event in super()._run_async_impl(ctx):
                 yield event
-            
             logger.info("Plan execution completed successfully")
             
         except Exception as e:

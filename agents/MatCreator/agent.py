@@ -112,6 +112,9 @@ class MatCreatorFlowAgent(LlmAgent):
         print("[AGENT]: Runtime activated")
         #if phase == "thinking":
         async for event in thinking_agent.run_async(ctx):
+            #if not ctx.session.state.get("approval",False):
+            #    yield event
+            #    return
             yield event
         if not ctx.session.state.get("approval",False):
             return
@@ -151,6 +154,10 @@ def before_agent_callback_root(callback_context: CallbackContext):
     # Legacy state defaults kept temporarily for migration compatibility
     if 'plan' not in state:
         callback_context.state['plan'] = None
+        
+    if 'detailed_steps' not in state:
+        callback_context.state['detailed_steps'] = None
+        
     if 'goal' not in state:
         callback_context.state['goal'] = None
     

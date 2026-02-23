@@ -41,33 +41,34 @@ class PlanStep(BaseModel):
         description="Clear, concise description of what this step does (1-2 sentences)",
         max_length=500,
     )
-    inputs_required: str = Field(
-        ...,
-        description="Expected inputs (models, parameters, etc.)",
-        max_length=300,
-    )
-    expected_output: str = Field(
-        ...,
-        description="What result this step produces",
-        max_length=300,
-    )
+    #transfer_back: bool = Field(
+    #    ...,
+    #    description="Default to False. Transfer back to the thinking agent if not sure whether to execute next step or not."
+    #)
+    #inputs_required: str = Field(
+    #    ...,
+    #    description="Expected inputs (models, parameters, etc.)",
+    #    max_length=300,
+    #)
+    #expected_output: str = Field(
+    #    ...,
+    #    description="What result this step produces",
+    #    max_length=300,
+    #)
 
 
 class ExecutionPlan(BaseModel):
     """Structured execution plan for user approval."""
+    stages: List[str] = Field(
+        ..., description="Stages of execution, be general. Example: ['Evaluate the pre-trained model','Proceed to fine-tuning only if neccesary']"
+    )
+    current_stage: int = Field(..., description="The current stage of execution")
     steps: List[PlanStep] = Field(
         ...,
-        description="Ordered list of execution steps",
+        #description="Ordered list of detailed execution steps, ONLY includes DETERMINED steps",
+        description="Ordered list of detailed steps in the CURRENT stage, ONLY includes DETERMINED steps",
         min_items=1,
         max_items=10,
-    )
-    fallback_strategy: str = Field(
-        ...,
-        description=(
-            "If any step fails or is not feasible, describe an alternative approach "
-            "or contingency plan (1-2 sentences)"
-        ),
-        max_length=500,
     )
     additional_notes: str = Field(
         ...,
@@ -97,13 +98,13 @@ Input:
 - goal: {goal}
 - skills: {skills}
 - agent_descriptions: {agents}
+- memory: {memory}
+- current plan {plan}
 
-Output requirements:
+Requirements:
 - Use ONLY agent names that appear in agent_descriptions.
-- Keep each step specific: clear action, named inputs, concrete expected output.
-- Prefer reuse/fine-tuning over expensive retraining when feasible.
-- Respect workflow_guidance ordering/constraints and align with matched_skills.
-- Return only valid JSON conforming to ExecutionPlan. No markdown fences or extra commentary.
+- Keep each step specific and concise.
+- List steps ONLY for the current stage.
 """
 
 
@@ -117,13 +118,13 @@ plan_builder_agent = LlmAgent(
         model=_model_name,
         base_url=_model_base_url,
         api_key=_model_api_key,
+        #extra_body={"enable_thinking": False},
     ),
     description=(
-        "Accepts a structured planning request (goal, workflow type, guidance, available agents) "
-        "and produces a detailed ExecutionPlan JSON. Used as a tool by the ThinkingAgent."
+        "Produces a detailed ExecutionPlan JSON. Used as a tool by the ThinkingAgent."
     ),
     instruction=_PLAN_BUILDER_INSTRUCTION,
-    input_schema=PlanBuilderInput,
+    #input_schema=PlanBuilderInput,
     output_schema=ExecutionPlan,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
