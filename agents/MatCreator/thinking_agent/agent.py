@@ -57,7 +57,7 @@ class WorkflowClassification(BaseModel):
     )
     reasoning: str = Field(
         ...,
-        description="Brief explanation of why this workflow type was chosen",
+        description="Brief explanation of why you think this way",
         #max_length=300,
     )
 
@@ -156,7 +156,7 @@ assessment_tool_agent = LlmAgent(
 # before_agent_callback
 def before_agent_callback(callback_context: CallbackContext):
     """Set environment variables and initialize session state for MatCreator agent."""
-    #callback_context.state['approval'] = False
+    callback_context.state['approval'] = False
     callback_context.state.setdefault("summarize",default=None)
     return None
 
@@ -215,8 +215,8 @@ def after_tool_modifier(
         tool_context.state['plan'] = tool_response
         tool_context.state['detailed_steps']=tool_response.get('steps')
         
-    elif tool_name == 'check_approval':
-        tool_context.state['approval'] = True#tool_response.get('approved')    
+    #elif tool_name == 'approval_execution':
+    #    tool_context.state['phase'] = "execution"#tool_response.get('approved')    
     
     elif tool_name == 'summarize_agent':
         tool_context.state['summarize'] = tool_response
@@ -249,7 +249,8 @@ def approval_execution(tool_context: ToolContext) -> dict:
     """Transition to execution phase. Only call this AFTER the user has explicitly
     approved the plan in natural language (e.g. 'yes', 'ok', 'proceed', 'looks good').
     Do NOT call this if the user is still asking questions or requesting changes."""
-    tool_context.state["phase"] = "execution"
+    #"""Call this function to ask for user approval for execution"""
+    tool_context.state["approval"] = True
     return {
         "status": "ok",
         "message": "Execution approved",
@@ -279,7 +280,9 @@ thinking_agent = LlmAgent(
         #AgentTool(summarize_agent),
         #AgentTool(skill_search_tool_agent),
         update_memory,
-        FunctionTool(approval_execution)
+        FunctionTool(approval_execution,
+                     #require_confirmation=True
+                     )
     ],
     before_agent_callback=before_agent_callback,
     before_tool_callback=before_tool_callback,
