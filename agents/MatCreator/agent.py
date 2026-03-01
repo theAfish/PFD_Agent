@@ -11,7 +11,7 @@ import logging
 from enum import Enum
 from .thinking_agent import thinking_agent
 from .approval_agent import approval_agent
-from .execution_agent import execution_agent
+from .execution_agent import build_execution_agent
 from .summarize_agent import summarize_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 from .callbacks import (
@@ -106,7 +106,8 @@ class MatCreatorFlowAgent(BaseAgent):
 
             if state['phase']=='execution':
                 print("[AGENT]: Execution phase")
-                async for event in execution_agent.run_async(ctx):
+                _exec_agent = build_execution_agent(ctx.session.state.get("plan", {}))
+                async for event in _exec_agent.run_async(ctx):
                     yield event
 
                 state['phase']="thinking"
@@ -153,7 +154,8 @@ class MatCreatorFlowAgent(BaseAgent):
 
         if state.get("workflow_step",WorkflowStep.THINKING_PHASE) <= WorkflowStep.EXECUTION_PAHSE:
             logger.info(f"[{self.name}]: Execution phase")
-            async for event in execution_agent.run_async(ctx):
+            _exec_agent = build_execution_agent(state.get("plan", {}))
+            async for event in _exec_agent.run_async(ctx):
                 yield event
             state["workflow_step"] = WorkflowStep.SUMMARIZING_PHASE
 
@@ -192,7 +194,8 @@ class MatCreatorFlowAgent(BaseAgent):
             
         if ctx.session.state["phase"]=="execution":
             logger.info(f"[{self.name}]: Execution phase")
-            async for event in execution_agent.run_async(ctx):
+            _exec_agent = build_execution_agent(ctx.session.state.get("plan", {}))
+            async for event in _exec_agent.run_async(ctx):
                 yield event
                 
             event_action = EventActions(state_delta={"phase":"summarize"})
@@ -329,7 +332,7 @@ _root_agent = MatCreatorFlowAgent(
     sub_agents=[
         thinking_agent,
         approval_agent,
-        execution_agent,
+        # execution_agent is built dynamically by build_execution_agent() at runtime
     ]
     )
 

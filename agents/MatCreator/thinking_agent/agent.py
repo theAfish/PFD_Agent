@@ -213,7 +213,11 @@ def after_tool_modifier(
         
     elif tool_name == 'plan_builder_agent':
         tool_context.state['plan'] = tool_response
-        tool_context.state['detailed_steps']=tool_response.get('steps')
+        tool_context.state['detailed_steps'] = tool_response.get('steps')
+        tool_context.state['agents_needed'] = list({
+            step['agent'] for step in (tool_response.get('steps') or [])
+            if isinstance(step, dict) and 'agent' in step
+        })
         
     #elif tool_name == 'approval_execution':
     #    tool_context.state['phase'] = "execution"#tool_response.get('approved')    
