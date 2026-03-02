@@ -24,7 +24,6 @@ from pydantic import BaseModel, Field
 from ..constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from ..prompts.subagents import format_subagent_descriptions
 from .planning_agent.agent import plan_builder_agent
-#from .summarize_agent.agent import summarize_agent
 from .skill import _load_skill_registry
 from .memory import load_memory
 from .memory import update_memory
@@ -100,14 +99,12 @@ Output in json format
 """
 
 _THINKING_INSTRUCTION = """
-You are the central brain for planning and supervising the fine-tuning, testing and application of 
-machine-learning force field.
+You are the central brain for planning and supervising the computational materials tasks.
 
 You orchestrate planning through tool sub-agents:
 - intent_tool_agent              : determine user's goal
 - plan_builder_agent             : drafts a detailed ExecutionPlan
 - approval_execution             : ask user permission to proceed to Execution
-- summarize_agent                : summarizes execution results from goal, plan, and execution history
 - update_memory(new_entries)     : appends new knowledge to MEMORY.md
 
 You keep track of these state to decide what to do:
@@ -219,14 +216,10 @@ def after_tool_modifier(
             if isinstance(step, dict) and 'agent' in step
         })
         
-    #elif tool_name == 'approval_execution':
-    #    tool_context.state['phase'] = "execution"#tool_response.get('approved')    
     
     elif tool_name == 'summarize_agent':
         tool_context.state['summarize'] = tool_response
 
-    print("[Callback] Passing original tool response through.")
-    # Return None to use the original tool_response
     return None
 
 # After model modfier
@@ -236,13 +229,9 @@ def after_model_modifier(
 ) -> Optional[Dict]:
     """Inspects/modifies the tool result after execution."""
     
-    #for k,v in callback_context._invocation_context.session.state.items():
-    #    print(f"[Callback] Session state {k}:{v}")
-    
     k_list=["phase"]
     for k in k_list:
         print(f"[Callback] The current states are {k}:{callback_context.state.get(k)}")
-    # Return None to use the original tool_response
     return None
 
 # ---------------------------------------------------------------------------
@@ -260,15 +249,12 @@ def approval_execution(tool_context: ToolContext) -> dict:
         "message": "Execution approved",
     }
 
-
-
 thinking_agent = LlmAgent(
     name="thinking_agent",
     model=LiteLlm(
         model=_model_name,
         base_url=_model_base_url,
         api_key=_model_api_key,
-        #extra_body={"enable_thinking": False}
     ),
     description=(
         "Thinking-phase orchestrator. Classifies workflow, creates structured execution plans, "
@@ -280,12 +266,8 @@ thinking_agent = LlmAgent(
     tools=[
         AgentTool(intent_tool_agent),
         AgentTool(plan_builder_agent),
-        #AgentTool(assessment_tool_agent),
-        #AgentTool(summarize_agent),
-        #AgentTool(skill_search_tool_agent),
         update_memory,
         FunctionTool(approval_execution,
-                     #require_confirmation=True
                      )
     ],
     before_agent_callback=before_agent_callback,

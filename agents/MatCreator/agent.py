@@ -1,16 +1,14 @@
-from google.adk.agents import LlmAgent, InvocationContext, LoopAgent, BaseAgent
-from google.adk.models.lite_llm import LiteLlm
+from google.adk.agents import InvocationContext, BaseAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.apps import App, ResumabilityConfig
-from google.adk.tools.function_tool import FunctionTool
 from google.adk.events import Event, EventActions
 from google.genai.types import Content,Part
+from pydantic import PrivateAttr
 import os
 import logging
-from enum import Enum
+from typing import Optional, Any
 from .thinking_agent import thinking_agent
-from .approval_agent import approval_agent
 from .execution_agent import build_execution_agent
 from .summarize_agent import summarize_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
@@ -62,121 +60,27 @@ You DO NOT execute tasks directly. You route work using the session phase:
 3. Keep your messages minimal - let the specialized agents communicate with users
 4. If phase is invalid or missing, normalize to thinking
 """
-class WorkflowStep(int,Enum):
-    THINKING_PHASE=1
-    APPROVAL_PAHSE=2
-    EXECUTION_PAHSE=3
-    SUMMARIZING_PHASE=4
 
 class MatCreatorFlowAgent(BaseAgent):
     """Root agent with enforced phase-based routing."""
 
-    workflow_step: WorkflowStep = WorkflowStep.THINKING_PHASE
-    
-    @staticmethod
-    def _normalize_phase(state: dict) -> str:
-        """Normalize phase from current state, using legacy flags as fallback."""
-        phase = state.get("phase")
-        if phase in {"thinking", "execution"}:
-            return phase
+    _execution_agent: Optional[Any] = PrivateAttr(default=None)
 
-        if state.get("execution_started", False) and not state.get("execution_complete", False):
-            phase = "execution"
-        else:
-            phase = "thinking"
+    @property
+    def execution_agent(self) -> Optional[Any]:
+        """The current execution agent instance, built from the active plan."""
+        return self._execution_agent
 
-        state["phase"] = phase
-        return phase
-    
-    async def _run_async_impl_tmp(self, ctx: InvocationContext):
-        """Loop thinking/execution until approval check requests return."""
-        
-        
-        while True:
-            state = ctx.session.state
-            print("[CHECKPOINT]",state["phase"])
-            if state["phase"]=="thinking":
-                print("[AGENT]: Runtime activated")
-                async for event in thinking_agent.run_async(ctx):
-                    yield event
+    @execution_agent.setter
+    def execution_agent(self, agent: BaseAgent) -> None:
+        self._execution_agent = agent
 
-            #if not ctx.session.state.get("approval", False):
-            #    return
-
-
-            if state['phase']=='execution':
-                print("[AGENT]: Execution phase")
-                _exec_agent = build_execution_agent(ctx.session.state.get("plan", {}))
-                async for event in _exec_agent.run_async(ctx):
-                    yield event
-
-                state['phase']="thinking"
-                async for event in summarize_agent.run_async(ctx):
-                    yield event
-            else:
-                return
-        
-    async def _run_async_impl_cycle_tmp(self, ctx: InvocationContext):
-        """Route to the correct workflow phase, persisting step in session.state."""
-        state = ctx.session.state
-
-        logger.info(f"[{self.name}]: step={self.workflow_step}")
-
-        if self.workflow_step <= WorkflowStep.THINKING_PHASE:
-            logger.info(f"[{self.name}]: Starting thinking")
-            async for event in thinking_agent.run_async(ctx):
-                yield event
-
-            if state.get("approval", False):
-                # thinking_agent presented a plan but user hasn't approved yet;
-                # stay at THINKING_PHASE so next turn re-enters here.
-                
-                self.workflow_step = WorkflowStep.APPROVAL_PAHSE
-                logger.info(f"[{self.name}]: Waiting for user approval.")
-                return
-
-            # thinking_agent set approval=True inline — advance to approval step
-            #state["workflow_step"] = WorkflowStep.APPROVAL_PAHSE
-            return
-
-        if self.workflow_step <= WorkflowStep.APPROVAL_PAHSE:
-            logger.info(f"[{self.name}]: Running approval inference")
-            async for event in approval_agent.run_async(ctx):
-                yield event
-
-            if not state.get("approval", False):
-                # User did not approve; approval_agent already reset phase/plan
-                state["workflow_step"] = WorkflowStep.THINKING_PHASE
-                logger.info(f"[{self.name}]: Approval denied → returning to thinking phase.")
-                return
-
-            state["workflow_step"] = WorkflowStep.EXECUTION_PAHSE
-
-        if state.get("workflow_step",WorkflowStep.THINKING_PHASE) <= WorkflowStep.EXECUTION_PAHSE:
-            logger.info(f"[{self.name}]: Execution phase")
-            _exec_agent = build_execution_agent(state.get("plan", {}))
-            async for event in _exec_agent.run_async(ctx):
-                yield event
-            state["workflow_step"] = WorkflowStep.SUMMARIZING_PHASE
-
-        if state.get("workflow_step",WorkflowStep.THINKING_PHASE) <= WorkflowStep.SUMMARIZING_PHASE:
-            logger.info(f"[{self.name}]: Summarizing result")
-            async for event in summarize_agent.run_async(ctx):
-                yield event
-
-        # Workflow complete — reset for the next task
-        state["workflow_step"] = WorkflowStep.THINKING_PHASE
-        state["approval"] = False
-        logger.info(f"[{self.name}] Workflow finished.")
-
-
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     async def _run_async_impl_cycle(self, ctx: InvocationContext):
         """Route to the correct workflow phase, persisting step in session.state."""
         state = ctx.session.state
-        logger.info(f"[{self.name}]: step={self.workflow_step}")
-
-
         if ctx.session.state["phase"]=="thinking":
             logger.info(f"[{self.name}]: Starting thinking")
             async for event in thinking_agent.run_async(ctx):
@@ -191,45 +95,56 @@ class MatCreatorFlowAgent(BaseAgent):
                 actions=event_action
         )
             yield event
+            logger.info(f"[{self.name}]: Building execution agent from approved plan")
+            self.execution_agent = build_execution_agent(ctx.session.state.get("plan", {}))
+            
             
         if ctx.session.state["phase"]=="execution":
-            logger.info(f"[{self.name}]: Execution phase")
-            _exec_agent = build_execution_agent(ctx.session.state.get("plan", {}))
-            async for event in _exec_agent.run_async(ctx):
+            logger.info(f"[{self.name}]: Starting execution loop")
+            while True:
+                async for event in self._run_async_execution(ctx):
+                    yield event
+                if ctx.session.state.get("execution_complete", False):
+                    break    
+                
+            if ctx.session.state.get("recommended_next_action", "") == "replan" or ctx.session.state.get("recommended_next_action", "") == "mark_complete":
+                logger.info(f"[{self.name}]: Execution complete with recommended next action {ctx.session.state.get('recommended_next_action','')}, routing back to thinking agent.")
+                event_action = EventActions(state_delta={"phase":"thinking"})
+                event = Event(
+                    content=Content(parts=[Part(text=f"thinking...")]),
+                    author=self.name,
+                    actions=event_action
+                    )
                 yield event
                 
-            event_action = EventActions(state_delta={"phase":"summarize"})
-            event = Event(
-                content=Content(parts=[Part(text=f"Summarizing results")]),
-                author=self.name,
-                actions=event_action
-        )
-            yield event
-
-
-        if ctx.session.state["phase"]=="summarize":
-            logger.info(f"[{self.name}]: Summarizing result")
-            async for event in summarize_agent.run_async(ctx):
+            elif ctx.session.state.get("recommended_next_action", "") == "request_user_input":
+                logger.info(f"[{self.name}]: Execution agent recommends requesting user input, remain in execution phase")
+                event_action = EventActions(state_delta={"approval":False})
+                event = Event(
+                    content=Content(parts=[Part(text=f"thinking...")]),
+                    author=self.name,
+                    actions=event_action
+                    )
+                yield event
+        return
+            
+    async def _run_async_execution(self, ctx: InvocationContext):
+        """Override to prevent automatic phase changes after each tool call."""
+        async for event in self.execution_agent.run_async(ctx):
                 yield event
                 
-                
-            event_action = EventActions(state_delta={"phase":"thinking"})
-            event = Event(
-                content=Content(parts=[Part(text=f"thinking...")]),
-                author=self.name,
-                actions=event_action
-        )
-            yield event
-
-
+        logger.info(f"[{self.name}]: Summarizing result")
+        async for event in summarize_agent.run_async(ctx):
+                yield event
+    
     async def _run_async_impl(self, ctx: InvocationContext):
+        '''Main loop to continuously route between phases until session ends.'''
         while True:
             async for event in self._run_async_impl_cycle(ctx):
                 yield event
             if not ctx.session.state.get("approval",False):
-                break
-                
-        
+                break   
+        return     
             
 
 def before_agent_callback_root(callback_context: CallbackContext):
@@ -284,9 +199,6 @@ def before_agent_callback_root(callback_context: CallbackContext):
     
     if 'needs_replanning' not in state:
         callback_context.state['needs_replanning'] = False
-
-    if 'workflow_step' not in state:
-        callback_context.state['workflow_step'] = WorkflowStep.THINKING_PHASE
     
     # Initialize session metadata in database if not already exists
     try:
@@ -319,23 +231,11 @@ structure_builder_agent = RemoteA2aAgent(
 
 _root_agent = MatCreatorFlowAgent(
     name='MatCreator_agent',
-    #model=LiteLlm(
-    #    model=model_name,
-    #    base_url=model_base_url,
-    #    api_key=model_api_key
-    #),
-    #description=description,
-    #instruction=root_instruction, 
-    #global_instruction=global_instruction,
     before_agent_callback=before_agent_callback_root,
-    #tools=[set_session_metadata, get_session_context, get_session_metadata],
     sub_agents=[
-        thinking_agent,
-        approval_agent,
-        # execution_agent is built dynamically by build_execution_agent() at runtime
+        thinking_agent
     ]
     )
-
 
 app = App(
     name="MatCreator",

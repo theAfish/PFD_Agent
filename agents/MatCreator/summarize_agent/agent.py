@@ -25,7 +25,7 @@ _model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 
 class ExecutionSummaryInput(BaseModel):
@@ -57,7 +57,7 @@ class ExecutionSummary(BaseModel):
         description="Goal that was evaluated.",
         max_length=500,
     )
-    completion_status: Literal["completed", "in_progress", "blocked", "not_started"] = Field(
+    completion_status: Literal["completed", "in_progress", "blocked"] = Field(
         ...,
         description="Overall execution status against the approved plan and goal.",
     )
@@ -111,11 +111,6 @@ Session state context:
 - plan: {plan}
 - execution_history: {execution_history}
 
-Input (ExecutionSummaryInput):
-- goal: optional override
-- plan: optional override
-- execution_history: optional override (list of key events)
-
 Task:
 1) Compare execution history against plan steps and goal.
 2) Determine completion status and infer completed/pending/failed step numbers.
@@ -124,7 +119,6 @@ Task:
 
 Source-of-truth rule:
 - Use session state `execution_history` as the default execution transcript.
-- If input.execution_history is non-empty, treat it as an explicit override.
 
 Rules:
 - Be conservative: if evidence is incomplete, use in_progress.
@@ -132,7 +126,6 @@ Rules:
 - concise_summary must be one short paragraph (2-4 sentences).
 - If all required steps are complete and goal achieved -> mark_complete.
 - If blocked by errors or missing prerequisites -> replan or request_user_input as appropriate.
-- Return only JSON conforming to ExecutionSummary.
 """
 
 
@@ -213,10 +206,21 @@ class SummarizeAgent(LlmAgent):
                 return
 
             rendered_text = self._render_summary_text(summary_data)
+            
             state_update = {
                 "summarize": summary_data.model_dump(),
                 "execution_summary_text": summary_data.concise_summary,
+                "recommended_next_action": summary_data.recommended_next_action,
             }
+            logger.info(f"[{self.name}]: Updating session state with summary and recommended action: {state_update['recommended_next_action']}")
+            logger.info(f"[{self.name}]: Updating session state with summary and completion status: {summary_data.completion_status}")
+            # Update session state "stop execution"
+            if summary_data.completion_status == "completed" or "blocked":
+                state_update["execution_complete"] = True
+                
+            elif summary_data.completion_status == "in_progress":
+                state_update["execution_complete"] = False
+            
             event_action = EventActions(state_delta=state_update)
             yield Event(
                 content=Content(parts=[Part(text=rendered_text)]),
@@ -244,7 +248,7 @@ summarize_agent = SummarizeAgent(
         "returning a structured ExecutionSummary."
     ),
     instruction=_SUMMARIZE_INSTRUCTION,
-    input_schema=ExecutionSummaryInput,
+    #input_schema=ExecutionSummaryInput,
     output_schema=ExecutionSummary,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
