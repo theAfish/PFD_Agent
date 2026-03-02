@@ -25,7 +25,7 @@ _model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 
 class ExecutionSummaryInput(BaseModel):
@@ -57,7 +57,7 @@ class ExecutionSummary(BaseModel):
         description="Goal that was evaluated.",
         max_length=500,
     )
-    completion_status: Literal["completed", "in_progress", "blocked", "not_started"] = Field(
+    completion_status: Literal["completed", "in_progress", "blocked"] = Field(
         ...,
         description="Overall execution status against the approved plan and goal.",
     )
@@ -213,10 +213,21 @@ class SummarizeAgent(LlmAgent):
                 return
 
             rendered_text = self._render_summary_text(summary_data)
+            
             state_update = {
                 "summarize": summary_data.model_dump(),
                 "execution_summary_text": summary_data.concise_summary,
+                "recommended_next_action": summary_data.recommended_next_action,
             }
+            logger.info(f"[{self.name}]: Updating session state with summary and recommended action: {state_update['recommended_next_action']}")
+            logger.info(f"[{self.name}]: Updating session state with summary and completion status: {summary_data.completion_status}")
+            # Update session state "stop execution"
+            if summary_data.completion_status == "completed" or "blocked":
+                state_update["execution_complete"] = True
+                
+            elif summary_data.completion_status == "in_progress":
+                state_update["execution_complete"] = False
+            
             event_action = EventActions(state_delta=state_update)
             yield Event(
                 content=Content(parts=[Part(text=rendered_text)]),

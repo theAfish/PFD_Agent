@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import os
 import logging
 from typing import Dict, Any, List
@@ -175,6 +178,34 @@ def return_weather():
     return {"city": "Beijing", "temperature": "12 Celcius"}
 
 
+# Module-level cache: plan fingerprint -> ExecutionAgent instance
+_execution_agent_cache: dict[str, "ExecutionAgent"] = {}
+
+
+def _plan_fingerprint(plan: dict) -> str:
+    """Stable hash of the sorted agent names referenced in a plan."""
+    steps = plan.get("steps", []) if isinstance(plan, dict) else []
+    names = sorted({step["agent"] for step in steps if isinstance(step, dict) and "agent" in step})
+    return hashlib.md5(json.dumps(names).encode()).hexdigest()
+
+
+def _clone_agent(agent: LlmAgent) -> LlmAgent:
+    """Return a shallow Pydantic copy of *agent* with its parent reference cleared.
+
+    ADK enforces a single-parent constraint; cloning lets the same logical
+    sub-agent be attached to multiple ExecutionAgent instances without collision.
+    """
+    cloned = agent.model_copy(deep=False)
+    object.__setattr__(cloned, "_parent_agent", None)
+    return cloned
+
+
+def clear_execution_agent_cache() -> None:
+    """Flush the cached execution agents (e.g. after hot-reloading sub-agents)."""
+    _execution_agent_cache.clear()
+    logger.info("[ExecutorFactory] Execution agent cache cleared.")
+
+
 def build_execution_agent(plan: dict) -> ExecutionAgent:
     """Factory that instantiates an ExecutionAgent scoped to the agents named in *plan*.
 
@@ -182,7 +213,15 @@ def build_execution_agent(plan: dict) -> ExecutionAgent:
     ``PlanStep`` in *plan*. Only agents present in the global SUBAGENTS registry are
     attached; unknown names are logged as warnings. If the plan is empty or malformed
     every registered sub-agent is attached as a safe fallback.
+
+    Results are cached by plan fingerprint so the same ExecutionAgent instance is
+    reused for identical agent sets, avoiding ADK's single-parent constraint.
     """
+    fingerprint = _plan_fingerprint(plan)
+    if fingerprint in _execution_agent_cache:
+        logger.info(f"[ExecutorFactory] Reusing cached execution agent ({fingerprint[:8]})")
+        return _execution_agent_cache[fingerprint]
+
     steps = plan.get("steps", []) if isinstance(plan, dict) else []
     needed_names: set[str] = {step["agent"] for step in steps if isinstance(step, dict) and "agent" in step}
 
@@ -190,15 +229,14 @@ def build_execution_agent(plan: dict) -> ExecutionAgent:
         unknown = needed_names - SUBAGENTS.keys()
         if unknown:
             logger.warning(f"[ExecutorFactory] Plan references unknown agents: {unknown} — they will be skipped.")
-        sub_agents = [SUBAGENTS[name] for name in needed_names if name in SUBAGENTS]
+        sub_agents = [_clone_agent(SUBAGENTS[name]) for name in needed_names if name in SUBAGENTS]
         logger.info(f"[ExecutorFactory] Attaching sub-agents: {[a.name for a in sub_agents]}")
-        print(f"[ExecutorFactory] Attaching sub-agents: {[a.name for a in sub_agents]}")
-        print(f"Name{__name__}")
     else:
         # Fallback: attach all registered agents when plan provides no agent names
         logger.warning("[ExecutorFactory] No agent names found in plan steps — attaching all sub-agents as fallback.")
-        sub_agents = list(SUBAGENTS.values())
-    return ExecutionAgent(
+        sub_agents = [_clone_agent(a) for a in SUBAGENTS.values()]
+
+    agent = ExecutionAgent(
         name="execution_agent",
         model=LiteLlm(
             model=_model_name,
@@ -214,8 +252,13 @@ def build_execution_agent(plan: dict) -> ExecutionAgent:
         sub_agents=sub_agents,
     )
 
+    _execution_agent_cache[fingerprint] = agent
+    logger.info(f"[ExecutorFactory] Created and cached execution agent ({fingerprint[:8]})")
+    return agent
+
 
 # Export helpers
 __all__ = [
     "build_execution_agent",
+    "clear_execution_agent_cache",
 ]
