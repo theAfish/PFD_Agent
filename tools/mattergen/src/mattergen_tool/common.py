@@ -13,8 +13,11 @@ from ase import Atoms
 import numpy as np
 import json
 
-from .utils import prepare_train_command, dict_to_fire_args, preset_condition_modes
+from .submission import dflow_remote_execution
+from .utils import prepare_train_command, dict_to_fire_args
 
+
+### Functions that can be run fully locally.
 
 def ase_to_mattergen(
         ase_extxyz_file: Union[str, Path],
@@ -223,6 +226,29 @@ def _as_path(p: Optional[Union[str, Path]]) -> Optional[Path]:
     return p if isinstance(p, Path) else Path(p)
 
 
+### Functions that may require remote execution.
+@dflow_remote_execution(
+    artifact_inputs={
+        "model_root": Path,
+        "data_root": Path,
+    },
+    artifact_outputs={
+        "training_scirpt": Path,
+        "training_log": Path,
+        "trained_model": Path,
+        "extra_training_outputs": List[Path],
+    },
+    parameter_inputs={
+        "conditioned_properties": Optional[List[str]],
+        "skip": bool,
+        "additional_args": Optional[Dict],
+        "custom_cmd": Optional[str],
+        "env_vars": Optional[Dict],
+        "venv_root": Optional[str],
+        "output_dir": Union[str, Path],
+    },
+    op_name="MattergenTrainingOP"
+)
 def mattergen_train(
         *,
         model_root: Union[str, Path],
@@ -369,6 +395,24 @@ def mattergen_train(
     raise RuntimeError("No output directory found after training.")
 
 
+@dflow_remote_execution(
+    artifact_inputs={
+        "model_path": Path,
+    },
+    artifact_outputs={
+        "generated_structures": Path,
+        "extra_generation_outputs": List[Path],
+    },
+    parameter_inputs={
+        "results_dir": Path,
+        "conditioned_property_values": Optional[Dict],
+        "additional_args": Optional[Dict],
+        "custom_cmd": Optional[str],
+        "env_vars": Optional[Dict],
+        "venv_root": Optional[str],
+    },
+    op_name="MattergenGenerationOP"
+)
 def mattergen_generate(
         *,
         model_path: Union[str, Path],
@@ -420,7 +464,7 @@ def mattergen_generate(
             Root path to a virtual environment to activate before running the generation command.
             Recommended to set as mattergen is typically installed in a venv.
     Returns:
-        Tuple[str, List[str]:
+        Tuple[str, List[str]]:
             - Path to the generated crystals in .extxyz format.
             - List of any additional output files generated during generation (e.g. trajectories in .zip format).
     """
