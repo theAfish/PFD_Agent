@@ -2,6 +2,7 @@ from google.adk.agents import InvocationContext, BaseAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.apps.app import EventsCompactionConfig
 from google.adk.events import Event, EventActions
 from google.genai.types import Content,Part
 from pydantic import PrivateAttr
@@ -95,12 +96,15 @@ class MatCreatorFlowAgent(BaseAgent):
                 actions=event_action
         )
             yield event
-            logger.info(f"[{self.name}]: Building execution agent from approved plan")
-            self.execution_agent = build_execution_agent(ctx.session.state.get("plan", {}))
+            
             
             
         if ctx.session.state["phase"]=="execution":
             logger.info(f"[{self.name}]: Starting execution loop")
+            if self.execution_agent == None:
+                logger.info(f"[{self.name}]: Building execution agent from approved plan")
+                self.execution_agent = build_execution_agent(ctx.session.state.get("plan", {}))
+                
             while True:
                 async for event in self._run_async_execution(ctx):
                     yield event
@@ -109,7 +113,10 @@ class MatCreatorFlowAgent(BaseAgent):
                 
             if ctx.session.state.get("recommended_next_action", "") == "replan" or ctx.session.state.get("recommended_next_action", "") == "mark_complete":
                 logger.info(f"[{self.name}]: Execution complete with recommended next action {ctx.session.state.get('recommended_next_action','')}, routing back to thinking agent.")
-                event_action = EventActions(state_delta={"phase":"thinking"})
+                event_action = EventActions(state_delta={
+                    "phase":"thinking",
+                    "approval": True,
+                    })
                 event = Event(
                     content=Content(parts=[Part(text=f"thinking...")]),
                     author=self.name,
@@ -121,7 +128,7 @@ class MatCreatorFlowAgent(BaseAgent):
                 logger.info(f"[{self.name}]: Execution agent recommends requesting user input, remain in execution phase")
                 event_action = EventActions(state_delta={"approval":False})
                 event = Event(
-                    content=Content(parts=[Part(text=f"thinking...")]),
+                    content=Content(parts=[Part(text=f"Waiting for user input...")]),
                     author=self.name,
                     actions=event_action
                     )
@@ -242,6 +249,10 @@ app = App(
     root_agent=_root_agent,
     resumability_config=ResumabilityConfig(
         is_resumable=True,
+    ),
+    events_compaction_config=EventsCompactionConfig(
+        compaction_interval=3,  # Trigger compaction every 3 new invocations.
+        overlap_size=1          # Include last invocation from the previous window.
     ),
     # Optionally include App-level features:
     # plugins, context_cache_config, resumability_config
