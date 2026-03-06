@@ -23,34 +23,15 @@ settings) and datasets (one per element-set per node). You assist with finding r
 chemical composition or node metadata, inspecting and querying structures within datasets, exporting
 structures, and saving new calculation data to an appropriate node.
 """
-
-instruction_tmp = """
-You are an agent responsible for querying, export and update of materials dataset.
-
-Use this flow for dataset search:
-1) `database_sql_agent` to generate one safe SELECT.
-2) `validate_sql_code_query`.
-3) `query_information_database`.
-
-Datasets are elements-centric, i.e., a dataset SELECT by `Si-O` have all the compositions (SiO2, SiO4) that have Si and O elements.
-
-Rules:
-- For composition queries, use exact formula only: `datasets.elements = 'A-B'` (sorted, hyphen-joined).
-- If user provides structure files, call `read_user_structure` first, then query by exact formula.
-- Keep ASE frame lookups concise with `query_compounds` (selection + limit).
-- Default export format: extxyz.
-- After `save_extxyz_to_db`, stop (no extra actions).
-"""
 instruction="""
 You are an agent responsible for querying, export and update of materials dataset.
 
 Use this flow for dataset search:
-1) `database_sql_agent` to generate one safe SELECT.
-2) `validate_sql_code_query`.
-3) `query_information_database`.
-
-Datasets are elements-centric, i.e., a dataset SELECT by `Si-O` have all the compositions (SiO2, SiO4) that have Si and O elements.
-Use `query_compounds` to identify the exact composition in a dataset
+1) search for available dataset domains:
+  -`database_sql_agent` to generate one safe SELECT.
+  - `validate_sql_code_query`.
+  - `query_information_database` to check available domain datasets (e.g., "domain_SemiCond").
+2) Use `query_compounds` to find target dataframes in the selected domain dataset.
 
 When preparing training/validation dataset for machine learning force fields,
 always export to extxyz format.
@@ -74,8 +55,8 @@ database_agent = LlmAgent(
     after_tool_callback=after_tool_callback,
     description=description,
     instruction=instruction,
-    disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True,
+    #disallow_transfer_to_parent=True,
+    #disallow_transfer_to_peers=True,
     tools=[
         AgentTool(sql_agent),
         toolset,

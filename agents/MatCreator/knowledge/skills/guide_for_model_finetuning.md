@@ -11,8 +11,8 @@ Model training is a dynamic, iterative process. Follow this decision flow and re
 
 ### Stage 1 — Check the Pre-trained Model
 - Always try the pre-trained model first.
-- Query the available datasets for target materials. If not sure, ALWAYS ask user.
-- If the data for target system is available, validate the pre-trained model for it.
+- Query the available domain datasets. If not sure, ALWAYS ask user.
+- Query the selected domain datasets for the target system. If it is available, validate the pre-trained model for it.
 - If validation passes, stop here — no training is needed.
 
 ### Stage 2 — Fine-tune on Available Data

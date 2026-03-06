@@ -44,11 +44,11 @@ class AtomsInfoResult(TypedDict):
     query_atoms_path: Union[Path, str]
     
 class QueryResult(TypedDict):
-    """Result structure for model training"""
+    """Result structure for query_compounds - brief summary only"""
     query: str
     count: int
-    ids: List[int]
-    formulas: List[str]
+    unique_formulas: List[str]
+    sample_ids: List[int]  # First few ids as examples
 
 # ---------------------------------------------------------------------------
 # Helpers for the normalized nodes/datasets/dataset_elements schema
@@ -370,24 +370,32 @@ def _query_compounds(
     """
     path = db_path
     logging.info(f"Querying ASE database at {path} with selection: {selection}")
-    results: List[Dict[str, Any]] = []
-    seen_ids: set[int] = set()
+    seen_ids: List[int] = []
     formulas: set[str] = set()
     try:
         with connect(path) as db:
-            for row in db.select(selection,#filter=filter,
-                                 limit=limit,**custom_args):
-                if row.id in seen_ids:
-                    continue
-                seen_ids.add(row.id)
-                formulas.add(row.get("formula"))
-            return  QueryResult(
-                query=selection,count=len(results),ids=seen_ids,formulas=formulas
+            for row in db.select(selection, limit=limit, **custom_args):
+                seen_ids.append(row.id)
+                formula = row.get("formula")
+                if formula:
+                    formulas.add(formula)
+            
+            # Return brief summary: count, unique formulas, and first few ids as samples
+            sample_ids = seen_ids[:10]  # Only return first 10 ids as examples
+            
+            return QueryResult(
+                query=str(selection),
+                count=len(seen_ids),
+                unique_formulas=sorted(formulas),
+                sample_ids=sample_ids
             )
     except Exception as e:
         logging.error("Error querying database: %s", e)
         return QueryResult(
-            query=selection,count=0,ids=[],formulas=[]
+            query=str(selection),
+            count=0,
+            unique_formulas=[],
+            sample_ids=[]
         )
 
 
@@ -401,9 +409,12 @@ def _export_entries(
     ids: Optional[List[int]] = None,
     db_path: str = "",
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-    mode: Literal["ids", "all", "random"] = "ids",
+    mode: Literal["ids", "all", "random", "selection"] = "ids",
     sample_size: Optional[int] = None,
     random_seed: Optional[int] = None,
+    selection: Optional[Union[dict, int, str, List[Union[str, Tuple]]]] = None,
+    limit: Optional[int] = None,
+    custom_args: Dict[str, Any] = {},
 ) -> Dict[str, Any]:
     """Export ASE database entries with flexible selection strategies.
 
@@ -411,20 +422,26 @@ def _export_entries(
         ids: Explicit entry ids (required when ``mode='ids'``).
         db_path: Absolute path to the ASE database file.
         fmt: Output structure format.
-        mode: Selection strategy: ``'ids'`` (default), ``'all'`` datasets, or ``'random'`` sample.
+        mode: Selection strategy: ``'ids'``, ``'all'``, ``'random'``, or ``'selection'``.
         sample_size: Number of entries to sample when ``mode='random'``.
         random_seed: Optional seed to make random sampling reproducible.
+        selection: Selection criteria (required when ``mode='selection'``). 
+            Same format as query_compounds: int, str, list[str], list[tuple], or dict.
+        limit: Maximum number of entries to export when ``mode='selection'``.
+        custom_args: Additional arguments forwarded to ASE db.select() when ``mode='selection'``.
 
     Returns:
         ExportResult with paths to the structure bundle, metadata JSON, and aggregate counts.
     """
 
-    if mode not in {"ids", "all", "random"}:
-        raise ValueError("mode must be one of: 'ids', 'all', 'random'")
+    if mode not in {"ids", "all", "random", "selection"}:
+        raise ValueError("mode must be one of: 'ids', 'all', 'random', 'selection'")
     if mode == "ids" and not ids:
         raise ValueError("Provide at least one id when mode='ids'")
     if mode == "random" and (sample_size is None or sample_size <= 0):
         raise ValueError("sample_size must be a positive integer when mode='random'")
+    if mode == "selection" and selection is None:
+        raise ValueError("Provide selection criteria when mode='selection'")
 
     path = db_path
     work_path = Path(generate_work_path())
@@ -453,10 +470,12 @@ def _export_entries(
                         sample_n = min(sample_size or 0, len(available_ids))
                         rng = random.Random(random_seed)
                         target_ids = rng.sample(available_ids, sample_n)
-                # mode == "all" keeps target_ids as None to stream rows directly
+                # mode == "all" or "selection" stream rows directly
 
                 if mode == "all":
                     row_iter = db.select()
+                elif mode == "selection":
+                    row_iter = db.select(selection, limit=limit, **custom_args)
                 else:
                     row_iter = (
                         db.get(id=entry_id)
@@ -706,11 +725,9 @@ def query_compounds(
     Returns:
         QueryResult:
             - query (str): Echo of the selection input (stringified).
-            - count (int): Number of unique rows returned.
-            - ids (List[int]): Unique row ids.
-            - formulas (List[str]): Unique empirical formulas (if available).
-            - results (List[Dict[str, Any]]): One dict per row with keys:
-                { 'id', 'name', 'formula', 'tags', 'key_value_pairs' }.
+            - count (int): Total number of entries matching the selection.
+            - unique_formulas (List[str]): Unique empirical formulas found.
+            - sample_ids (List[int]): First few entry ids as examples (max 10).
 
     Examples (selection):
         # 1) Single id
@@ -753,22 +770,34 @@ def export_entries(
     ids: Optional[List[int]] = None,
     db_path: str = "",
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-    mode: Literal["ids", "all", "random"] = "ids",
+    mode: Literal["ids", "all", "random", "selection"] = "ids",
     sample_size: Optional[int] = None,
     random_seed: Optional[int] = None,
+    selection: Optional[Union[dict, int, str, List[Union[str, Tuple]]]] = None,
+    limit: Optional[int] = None,
+    custom_args: Dict[str, Any] = {},
     ) -> Dict[str, Any]:
-    """Export ASE entries by ids, the entire dataset, or a random sample.
+    """Export ASE entries by ids, selection criteria, entire dataset, or random sample.
 
     Args:
         ids (List[int] | None): Specific row identifiers when ``mode='ids'``.
         db_path (str): Absolute path to the ASE database file.
         fmt (Literal["extxyz", "cif", "traj"]): Output structure format.
-        mode (Literal["ids", "all", "random"]): Selection strategy.
+        mode (Literal["ids", "all", "random", "selection"]): Selection strategy.
         sample_size (int | None): Number of entries to sample when ``mode='random'``.
         random_seed (int | None): Optional seed for deterministic sampling.
+        selection: Selection criteria when ``mode='selection'``. Same format as query_compounds:
+            int, str, list[str], list[tuple], or dict.
+        limit (int | None): Maximum entries to export when ``mode='selection'``.
+        custom_args (Dict[str, Any]): Additional arguments for ASE db.select() when ``mode='selection'``.
 
     Returns:
         Dict[str, Any]: Paths to the exported structure file and metadata JSON plus summary counts.
+        
+    Examples:
+        # Export by selection (similar to query_compounds)
+        >>> export_entries(db_path="path/to/db.db", mode="selection", selection="Si,energy<-1.0")
+        >>> export_entries(db_path="path/to/db.db", mode="selection", selection="formula=Si32", limit=100)
     """
     return _export_entries(
         ids=ids,
@@ -777,6 +806,9 @@ def export_entries(
         mode=mode,
         sample_size=sample_size,
         random_seed=random_seed,
+        selection=selection,
+        limit=limit,
+        custom_args=custom_args,
     )
 
 if __name__ == "__main__":

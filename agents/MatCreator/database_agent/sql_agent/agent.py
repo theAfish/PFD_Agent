@@ -10,80 +10,70 @@ from pydantic import BaseModel, Field
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
 _SCHEMA_GUIDE = """
-The info database has two tables. Always prefer JOINs over subqueries.
+The info database has a single table: nodes.
+Each row represents one domain dataset node.
 
 TABLE: nodes
-  node_id     INTEGER PK   -- unique DFT-setting group
-    name        TEXT         -- derived domain label (e.g. "OpenLAM_Cluster", "OpenLAM_Alloy")
-  functional  TEXT         -- PBE | PBEsol | LDA | SCAN | HSE06 ...
-  code        TEXT         -- VASP | ABACUS | QE | CP2K ...
-  description TEXT
-  created_at  TEXT
-
-TABLE: datasets
-  dataset_id  INTEGER PK
-  node_id     INTEGER FK -> nodes.node_id
-  elements    TEXT         -- hyphen-joined sorted symbols, e.g. "Fe-O"
-  n_elements  INTEGER      -- number of distinct elements
+  node_id     INTEGER PK   -- unique node identifier
+  name        TEXT         -- domain label (e.g. "Domain_Cluster", "Domain_SemiCond")
+  description TEXT         -- human-readable description of the dataset contents
   system_type TEXT         -- Bulk | Cluster | Surface | Interface ...
-    field       TEXT         -- scientific/application field (e.g. Catalysis, Alloy)
-  entries     INTEGER      -- frame count in the .db file
+  field       TEXT         -- scientific/application field (e.g. Catalysis, Semiconductor)
+  entries     INTEGER      -- total frame count in the .db file
   source      TEXT         -- URL / DOI / provenance label
   path        TEXT         -- relative path to the ASE .db file
-  has_forces  INTEGER      -- 1 if forces are stored
-  has_stress  INTEGER      -- 1 if stress is stored
-  has_energy  INTEGER      -- 1 if energies are stored
-  energy_min  REAL
-  energy_max  REAL
+  code        TEXT         -- VASP | ABACUS | QE | CP2K ...
+  functional  TEXT         -- PBE | PBEsol | LDA | SCAN | HSE06 ...
+  pseudopot   TEXT         -- pseudopotential / PAW label
+  metadata    TEXT         -- extra metadata string
   created_at  TEXT
 
 
 RULES:
-1. EXACT composition: use datasets.elements = 'Fe-O' (sorted, hyphen-joined).
-2. NEVER use LIKE with wildcards on the elements column.
-3. LIKE is permitted on system_type, field, source for fuzzy text matching.
-4. Always SELECT d.path so the caller can open the .db file.
-5. Never write UPDATE/INSERT/DELETE/DROP/ALTER/PRAGMA or ATTACH.
-6. Use LIMIT only if the user specifies a cap (infer 20 for "a few" / "top").
-7. Parenthesize OR groups; use explicit AND/OR.
-8. Use n.name for domain filtering.
+1. LIKE is permitted on name, system_type, field, source, description for fuzzy text matching.
+2. Always SELECT path so the caller can open the .db file.
+3. Never write UPDATE/INSERT/DELETE/DROP/ALTER/PRAGMA or ATTACH.
+4. Use LIMIT only if the user specifies a cap (infer 20 for "a few" / "top").
+5. Parenthesize OR groups; use explicit AND/OR.
+6. No JOINs are needed — all columns live in the single nodes table.
 
 EXAMPLES (follow these patterns):
-1) Exact formula in a given field
-    User: "Find Si datasets in Catalysis"
-    SQL: SELECT d.path AS path, d.elements AS elements, d.system_type AS system_type,
-                    d.entries AS entries, n.name AS domain_name
-          FROM datasets d
-          JOIN nodes n ON d.node_id = n.node_id
-          WHERE d.elements = 'Si' AND d.field = 'Catalysis'
+1) Find nodes by field
+    User: "Find Catalysis datasets"
+    SQL: SELECT name, system_type, field, entries, path
+          FROM nodes
+          WHERE field = 'Catalysis'
 
-2) Exact formula + DFT functional
-    User: "Find Si-O datasets with PBE"
-    SQL: SELECT d.path AS path, d.elements AS elements, d.entries AS entries,
-                    n.functional AS functional, n.name AS domain_name
-          FROM datasets d
-          JOIN nodes n ON d.node_id = n.node_id
-          WHERE d.elements = 'O-Si' AND n.functional = 'PBE'
+2) Find nodes by DFT functional
+    User: "Find datasets computed with PBE"
+    SQL: SELECT name, functional, entries, path
+          FROM nodes
+          WHERE functional = 'PBE'
 
-3) Exact formula + domain label
-    User: "Find Si datasets in OpenLAM_Cluster"
-    SQL: SELECT d.path AS path, d.elements AS elements, d.system_type AS system_type,
-                    d.entries AS entries, n.name AS domain_name
-          FROM datasets d
-          JOIN nodes n ON d.node_id = n.node_id
-          WHERE d.elements = 'Si' AND n.name = 'OpenLAM_Cluster'
+3) Find nodes by domain name
+    User: "Show me the Domain_Cluster node"
+    SQL: SELECT name, description, system_type, entries, path
+          FROM nodes
+          WHERE name = 'Domain_Cluster'
 
-4) Fuzzy system type with exact formula
-    User: "A few bulk Si datasets"
-    SQL: SELECT d.path AS path, d.elements AS elements, d.system_type AS system_type,
-                    d.entries AS entries, n.name AS domain_name
-          FROM datasets d
-          JOIN nodes n ON d.node_id = n.node_id
-          WHERE d.elements = 'Si' AND d.system_type LIKE '%Bulk%'
+4) Fuzzy filter on system type
+    User: "A few bulk datasets"
+    SQL: SELECT name, system_type, field, entries, path
+          FROM nodes
+          WHERE system_type LIKE '%Bulk%'
           LIMIT 20
 
-5) Prohibited pattern (do not generate)
-    SELECT ... FROM dataset_elements e WHERE e.element = 'Si'
+5) Combined filter
+    User: "Cluster datasets computed with CP2K"
+    SQL: SELECT name, code, functional, entries, path
+          FROM nodes
+          WHERE system_type LIKE '%Cluster%' AND code = 'CP2K'
+
+6) List all available nodes
+    User: "What datasets are available?" / "List all nodes"
+    SQL: SELECT name, system_type, field, entries, path
+          FROM nodes
+          ORDER BY name
 """
 
 
@@ -133,14 +123,12 @@ Below is the schema and the rules you must follow:
 Formatting requirements:
 - Wrap text literals in single quotes; escape embedded single quotes.
 - Include ORDER BY when ranked results are implied.
-- Use explicit column aliases (e.g. d.path AS path) to disambiguate JOINs.
+- No table aliases or JOINs are needed — query the nodes table directly.
 
 Output contract:
 - Respond with JSON conforming to SqlAgentOutput (sql / rationale / confidence). No extra keys.
 - The sql field must be a single SELECT statement with no trailing semicolon.
 - Set confidence="low" and describe assumptions in rationale when the request is ambiguous.
-
-Do not call any tools or external services.
 """
 
 
