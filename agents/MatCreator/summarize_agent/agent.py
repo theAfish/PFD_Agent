@@ -215,7 +215,7 @@ class SummarizeAgent(LlmAgent):
             logger.info(f"[{self.name}]: Updating session state with summary and recommended action: {state_update['recommended_next_action']}")
             logger.info(f"[{self.name}]: Updating session state with summary and completion status: {summary_data.completion_status}")
             # Update session state "stop execution"
-            if summary_data.completion_status == "completed" or "blocked":
+            if summary_data.completion_status == "completed" or "blocked" or len(summary_data.pending_steps) == 0:
                 state_update["execution_complete"] = True
                 
             elif summary_data.completion_status == "in_progress":
