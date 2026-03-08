@@ -11,6 +11,8 @@ from typing import Dict, Any, List
 from google.adk.agents import LlmAgent, InvocationContext
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools.tool_context import ToolContext
 from google.adk.events import Event, EventActions
 from google.genai.types import Content, Part
 from .constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
@@ -47,6 +49,16 @@ Steps: {detailed_steps}
 
 **Workflow-specific guidance will be provided in the context.**
 """
+
+
+def break_execution(tool_context: ToolContext) -> dict[str, str]:
+    """If user want to stop execution immediately, call THIS to route control back to replanning."""
+    tool_context.state["execution_complete"] = True
+    tool_context.state["recommended_next_action"] = "replan"
+    return {
+        "status": "ok",
+        "message": "Execution stopped. Control will return for replanning.",
+    }
 
 
 class ExecutionAgent(LlmAgent):
@@ -209,6 +221,7 @@ def build_execution_agent(plan: dict) -> ExecutionAgent:
         after_tool_callback=after_tool_callback,
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
+        tools=[FunctionTool(break_execution)],
         sub_agents=sub_agents,
     )
 
