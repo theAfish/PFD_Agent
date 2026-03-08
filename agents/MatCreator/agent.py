@@ -1,10 +1,12 @@
 from google.adk.agents import InvocationContext, BaseAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
-from google.adk.apps import App, ResumabilityConfig
-from google.adk.apps.app import EventsCompactionConfig
+from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+from google.adk.apps.app import App, EventsCompactionConfig
+from google.adk.apps import ResumabilityConfig
 from google.adk.events import Event, EventActions
 from google.genai.types import Content,Part
+from google.adk.models.lite_llm import LiteLlm
 from pydantic import PrivateAttr
 import os
 import logging
@@ -124,7 +126,7 @@ class MatCreatorFlowAgent(BaseAgent):
                     )
                 yield event
                 
-            elif ctx.session.state.get("recommended_next_action", "") == "request_user_input":
+            elif ctx.session.state.get("recommended_next_action", "") == "continue_execution":
                 logger.info(f"[{self.name}]: Execution agent recommends requesting user input, remain in execution phase")
                 event_action = EventActions(state_delta={"approval":False})
                 event = Event(
@@ -244,6 +246,15 @@ _root_agent = MatCreatorFlowAgent(
     ]
     )
 
+compaction_summarizer = LlmEventSummarizer(
+    #llm=Gemini(model="gemini-1.5-flash") # Or another model of your choice
+    llm=LiteLlm(
+        model=model_name,
+        base_url=model_base_url,
+        api_key=model_api_key
+    ),
+)
+
 app = App(
     name="MatCreator",
     root_agent=_root_agent,
@@ -251,9 +262,8 @@ app = App(
         is_resumable=True,
     ),
     events_compaction_config=EventsCompactionConfig(
-        compaction_interval=3,  # Trigger compaction every 3 new invocations.
-        overlap_size=1          # Include last invocation from the previous window.
-    ),
-    # Optionally include App-level features:
-    # plugins, context_cache_config, resumability_config
+        compaction_interval=5,
+        overlap_size=1,
+        summarizer=compaction_summarizer  # Pass the summarizer here
+    )
 )

@@ -7,18 +7,25 @@ a fully-formed `ExecutionPlan` JSON without any custom orchestration logic.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
-from typing import List, Literal
+import re
+from typing import Any, List
 
-from google.adk.agents import LlmAgent
+from google.adk.agents import InvocationContext, LlmAgent
+from google.adk.events import Event
 from google.adk.models.lite_llm import LiteLlm
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
 _model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
+_plan_builder_max_attempts = int(os.environ.get("PLAN_BUILDER_MAX_ATTEMPTS", "10"))
+
+logger = logging.getLogger()
 
 
 # ---------------------------------------------------------------------------
@@ -109,14 +116,119 @@ Requirements:
 Strictly Follow the JSON output.
 """
 
+_RETRY_INSTRUCTION_TEMPLATE = """
+
+Previous output failed schema validation:
+{validation_error}
+
+Retry now and output ONLY a valid JSON object that conforms to the ExecutionPlan schema.
+Do not include markdown fences or explanatory text.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
-output_schema=ExecutionPlan.model_json_schema()
-output_schema.update({"additional_properties":False})
-print(output_schema)
-plan_builder_agent = LlmAgent(
+
+class PlanBuilderAgent(LlmAgent):
+    """Plan builder with final-output schema validation and retry."""
+
+    @staticmethod
+    def _extract_event_text(event: Event) -> str:
+        """Extract plain text from ADK event content parts."""
+        content = getattr(event, "content", None)
+        if content is None:
+            return ""
+        parts = getattr(content, "parts", None) or []
+        chunks: List[str] = []
+        for part in parts:
+            text = getattr(part, "text", None)
+            if isinstance(text, str) and text.strip():
+                chunks.append(text.strip())
+        return "\n".join(chunks)
+
+    @staticmethod
+    def _extract_json_candidate(raw_text: str) -> str:
+        """Extract JSON candidate from raw text, tolerating fenced responses."""
+        text = raw_text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text).strip()
+
+        match = re.search(r"\{[\s\S]*\}", text)
+        return match.group(0) if match else text
+
+    @classmethod
+    def _validate_execution_plan(cls, event: Event | None) -> tuple[dict[str, Any] | None, str | None]:
+        """Validate final event payload against ExecutionPlan schema."""
+        if event is None:
+            return None, "No final response event was produced."
+
+        raw_text = cls._extract_event_text(event)
+        if not raw_text:
+            return None, "Final response event is empty."
+
+        candidate = cls._extract_json_candidate(raw_text)
+
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            return None, f"JSON decode error: {exc}"
+
+        try:
+            validated = ExecutionPlan.model_validate(parsed)
+        except ValidationError as exc:
+            return None, f"Schema validation error: {exc}"
+
+        return validated.model_dump(), None
+
+    async def _run_async_impl(self, ctx: InvocationContext):
+        """Retry plan generation until final output matches ExecutionPlan schema."""
+        base_instruction = self.instruction
+        last_error = ""
+
+        try:
+            for attempt in range(1, _plan_builder_max_attempts + 1):
+                logger.info(f"PlanBuilderAgent attempt {attempt}/{_plan_builder_max_attempts}")
+                if attempt == 1:
+                    self.instruction = base_instruction
+                else:
+                    self.instruction = (
+                        base_instruction
+                        + _RETRY_INSTRUCTION_TEMPLATE.format(validation_error=last_error)
+                    )
+
+                buffered_events: List[Event] = []
+                final_event: Event | None = None
+
+                async for event in super()._run_async_impl(ctx):
+                    buffered_events.append(event)
+                    if event.is_final_response() and getattr(event, "content", None):
+                        final_event = event
+
+                _, validation_error = self._validate_execution_plan(final_event)
+                if validation_error is None:
+                    for event in buffered_events:
+                        yield event
+                    return
+
+                last_error = validation_error
+                logger.warning(
+                    "plan_builder_agent schema validation failed on attempt %d/%d: %s",
+                    attempt,
+                    _plan_builder_max_attempts,
+                    validation_error,
+                )
+
+            raise ValueError(
+                "Plan builder failed to produce valid ExecutionPlan JSON "
+                f"after {_plan_builder_max_attempts} attempts. Last error: {last_error}"
+            )
+        finally:
+            self.instruction = base_instruction
+
+
+plan_builder_agent = PlanBuilderAgent(
     name="plan_builder_agent",
     model=LiteLlm(
         model=_model_name,

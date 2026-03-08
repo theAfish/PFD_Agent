@@ -82,19 +82,19 @@ class ExecutionSummary(BaseModel):
         default_factory=list,
         description="Important generated files/paths/IDs observed in execution outputs.",
     )
-    blockers: str = Field(
-        default="",
-        description="Main blockers or errors preventing completion. Empty if none.",
-        max_length=800,
-    )
+    #blockers: str = Field(
+    #    default="",
+    #    description="Main blockers or errors preventing completion. Empty if none.",
+    #    max_length=800,
+    #)
     recommended_next_action: Literal[
         "continue_execution",
-        "request_user_input",
+        #"request_user_input",
         "replan",
         "mark_complete",
     ] = Field(
         ...,
-        description="Recommended next action for the orchestrator.",
+        description="Recommended next action for the orchestrator. Always use 'replan' if major User decision is required",
     )
     concise_summary: str = Field(
         ...,
@@ -153,7 +153,7 @@ class SummarizeAgent(LlmAgent):
         pending = ", ".join(str(i) for i in summary.pending_steps) or "none"
         failed = ", ".join(str(i) for i in summary.failed_steps) or "none"
         artifacts = "\n".join(f"- {item}" for item in summary.artifacts) if summary.artifacts else "- none"
-        blockers = summary.blockers.strip() or "none"
+        #blockers = summary.blockers.strip() or "none"
 
         return (
             "📋 Execution Summary\n"
@@ -165,7 +165,7 @@ class SummarizeAgent(LlmAgent):
             f"Next action: {summary.recommended_next_action}\n\n"
             f"Key results:\n{summary.key_results}\n\n"
             f"Artifacts:\n{artifacts}\n\n"
-            f"Blockers: {blockers}\n\n"
+           # f"Blockers: {blockers}\n\n"
             f"Concise summary: {summary.concise_summary}"
         )
 

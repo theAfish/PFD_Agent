@@ -520,7 +520,7 @@ def dpa_finetuning(
             + ["train", TRAIN_SCRIPT_NAME, "--finetune", str(init_model_path.relative_to(workdir)), "--use-pretrain-script"]
         )
         if config.head:
-            command_list.append(config.head)
+            command_list.extend(['--model-branch',config.head])
         log_file_path = workdir / TRAIN_LOG_FILE
         with open(log_file_path, "w") as fplog:
             ret, out, err = run_command(
