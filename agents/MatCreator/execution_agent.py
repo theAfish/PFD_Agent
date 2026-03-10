@@ -30,24 +30,9 @@ logger = logging.getLogger()
 _EXECUTION_INSTRUCTION = """
 You are the execution agent. Your sole responsibility is to execute an approved plan by delegating to domain agents.
 
-Steps: {detailed_steps}
+Plans: {detailed_steps}
 
-**Your task:**
-- Read the approved plan from session state
-- Execute steps sequentially in order
-- For each step: delegate to the specified domain agent
-- After each step: report results with absolute paths and metrics
-- Collect all results and provide final summary
-
-
-**Execution rules:**
-1. Transfer to ONE agent at a time based on current step
-2. Wait for agent completion before proceeding to next step
-3. Summarize results after each step
-4. On errors: report exact error message, propose solution, and STOP execution
-5. Do not deviate from the plan - follow it precisely
-
-**Workflow-specific guidance will be provided in the context.**
+Previous execution history: {summarize}
 """
 
 

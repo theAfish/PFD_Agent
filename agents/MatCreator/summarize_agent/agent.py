@@ -200,14 +200,21 @@ class SummarizeAgent(LlmAgent):
 
             rendered_text = self._render_summary_text(summary_data)
             
+            if len(summary_data.failed_steps) == 0 and len(summary_data.pending_steps) == 0:
+                logger.info(f"Execution appears fully completed. Marking execution_complete=True in session state.")
+                completion_status = "completed"
+            else:
+                completion_status = summary_data.completion_status or "in_progress"
+                logger.info(f"Execution not fully completed. Marking execution_complete=False in session state. Reported completion_status: {completion_status}")
+                
             state_update = {
                 "summarize": summary_data.model_dump(),
-                "completion_status": summary_data.completion_status,
+                "completion_status": completion_status,
                 "execution_summary_text": summary_data.concise_summary,
                 "recommended_next_action": summary_data.recommended_next_action,
             }
             logger.info(f"[{self.name}]: Updating session state with summary and recommended action: {state_update['recommended_next_action']}")
-            logger.info(f"[{self.name}]: Updating session state with summary and completion status: {summary_data.completion_status}")
+            logger.info(f"[{self.name}]: Updating session state with summary and completion status: {completion_status}")
             
             # Update session state "stop execution"
             if summary_data.recommended_next_action == "continue_execution":

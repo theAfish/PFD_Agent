@@ -208,6 +208,9 @@ def before_agent_callback_root(callback_context: CallbackContext):
     
     if 'needs_replanning' not in state:
         callback_context.state['needs_replanning'] = False
+        
+    if 'completion_status' not in state:
+        callback_context.state['completion_status'] = "in_progress"
     
     # Initialize session metadata in database if not already exists
     try:
@@ -262,7 +265,7 @@ app = App(
         is_resumable=True,
     ),
     events_compaction_config=EventsCompactionConfig(
-        compaction_interval=5,
+        compaction_interval=3,
         overlap_size=1,
         summarizer=compaction_summarizer  # Pass the summarizer here
     )
