@@ -82,19 +82,14 @@ class ExecutionSummary(BaseModel):
         default_factory=list,
         description="Important generated files/paths/IDs observed in execution outputs.",
     )
-    #blockers: str = Field(
-    #    default="",
-    #    description="Main blockers or errors preventing completion. Empty if none.",
-    #    max_length=800,
-    #)
     recommended_next_action: Literal[
         "continue_execution",
-        #"request_user_input",
+        "request_user_input_but_no_need_to_replan",
         "replan",
         "mark_complete",
     ] = Field(
         ...,
-        description="Recommended next action for the orchestrator. Always use 'replan' if major User decision is required",
+        description="Recommended next action for the orchestrator. ",
     )
     concise_summary: str = Field(
         ...,
@@ -125,7 +120,6 @@ Rules:
 - Do not invent artifacts or metrics; only include what appears in history.
 - concise_summary must be one short paragraph (2-4 sentences).
 - If all required steps are complete and goal achieved -> mark_complete.
-- If blocked by errors or missing prerequisites -> replan or request_user_input as appropriate.
 """
 
 
@@ -165,7 +159,6 @@ class SummarizeAgent(LlmAgent):
             f"Next action: {summary.recommended_next_action}\n\n"
             f"Key results:\n{summary.key_results}\n\n"
             f"Artifacts:\n{artifacts}\n\n"
-           # f"Blockers: {blockers}\n\n"
             f"Concise summary: {summary.concise_summary}"
         )
 
@@ -209,17 +202,18 @@ class SummarizeAgent(LlmAgent):
             
             state_update = {
                 "summarize": summary_data.model_dump(),
+                "completion_status": summary_data.completion_status,
                 "execution_summary_text": summary_data.concise_summary,
                 "recommended_next_action": summary_data.recommended_next_action,
             }
             logger.info(f"[{self.name}]: Updating session state with summary and recommended action: {state_update['recommended_next_action']}")
             logger.info(f"[{self.name}]: Updating session state with summary and completion status: {summary_data.completion_status}")
+            
             # Update session state "stop execution"
-            if summary_data.completion_status == "completed" or "blocked" or len(summary_data.pending_steps) == 0:
-                state_update["execution_complete"] = True
-                
-            elif summary_data.completion_status == "in_progress":
+            if summary_data.recommended_next_action == "continue_execution":
                 state_update["execution_complete"] = False
+            else:
+                state_update["execution_complete"] = True
             
             event_action = EventActions(state_delta=state_update)
             yield Event(

@@ -14,7 +14,9 @@ dependencies = [
     "numpy==2.2.0",
     "dpdata>=0.2.25",
     "deepmd-kit==3.1.0",
-    "pydflow>=1.8.132"
+    "pydflow>=1.8.132",
+    "matcreator @ git+https://github.com/nlz25/PFD_Agent.git",
+
 ]
 
 [tool.setuptools.packages.find]

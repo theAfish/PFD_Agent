@@ -112,8 +112,8 @@ class MatCreatorFlowAgent(BaseAgent):
                     yield event
                 if ctx.session.state.get("execution_complete", False):
                     break    
-                
-            if ctx.session.state.get("recommended_next_action", "") == "replan" or ctx.session.state.get("recommended_next_action", "") == "mark_complete":
+            
+            if ctx.session.state.get("completion_status") == "completed" or ctx.session.state.get("recommended_next_action", "") == "mark_complete" or ctx.session.state.get("recommended_next_action", "") == "replan":
                 logger.info(f"[{self.name}]: Execution complete with recommended next action {ctx.session.state.get('recommended_next_action','')}, routing back to thinking agent.")
                 event_action = EventActions(state_delta={
                     "phase":"thinking",
@@ -126,7 +126,7 @@ class MatCreatorFlowAgent(BaseAgent):
                     )
                 yield event
                 
-            elif ctx.session.state.get("recommended_next_action", "") == "continue_execution":
+            elif ctx.session.state.get("recommended_next_action", "") == "request_user_input_but_no_need_to_replan":
                 logger.info(f"[{self.name}]: Execution agent recommends requesting user input, remain in execution phase")
                 event_action = EventActions(state_delta={"approval":False})
                 event = Event(

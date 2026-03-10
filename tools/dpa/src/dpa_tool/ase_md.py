@@ -24,7 +24,7 @@ from ase.filters import UnitCellFilter, ExpCellFilter
 from deepmd.calculator import DP
 
 
-from .utils import dflow_remote_execution,dflow_batch_execution
+from matcreator.utils.utils import dflow_remote_execution,dflow_batch_execution
 
 
 ase_conf_name = "structure.extxyz"
