@@ -10,9 +10,6 @@ from pathlib import (
 )
 import importlib
 import logging
-import json
-import inspect
-import textwrap
 
 import dflow
 from dflow.config import (
@@ -378,11 +375,18 @@ def dflow_remote_execution(
         # Set a better name for the OP class
         op_class_name = op_name or f"{func.__name__.title().replace('_', '')}OP"
         DynamicOP.__name__ = op_class_name
-        DynamicOP.__module__ = __name__
+        caller_module_name = func.__module__
+        DynamicOP.__module__ = caller_module_name
         DynamicOP.__qualname__ = op_class_name
         
-        # Register the OP class in the utils module namespace
-        # This makes it available for DFlow's import: from dpa_tool.utils import DPTrainingOP
+        # Register the OP class in the decorated function's module namespace.
+        # DFlow imports OP classes using "<module>.<class>", so this must match
+        # the module where the function is declared (e.g. dpa_tool.train).
+        caller_module = sys.modules.get(caller_module_name)
+        if caller_module is not None:
+            setattr(caller_module, op_class_name, DynamicOP)
+
+        # Keep a fallback registration in this module for compatibility.
         globals()[op_class_name] = DynamicOP
         
         @wraps(func)
@@ -729,10 +733,16 @@ def dflow_batch_execution(
         # Set name for OP class
         exec_class_name = exec_op_name or f"Exec{func_name.title().replace('-', '')}OP"
         ExecBatchOP.__name__ = exec_class_name
-        ExecBatchOP.__module__ = __name__
+        caller_module_name = func.__module__
+        ExecBatchOP.__module__ = caller_module_name
         ExecBatchOP.__qualname__ = exec_class_name
         
-        # Register in module namespace
+        # Register in the decorated function's module namespace for dflow import.
+        caller_module = sys.modules.get(caller_module_name)
+        if caller_module is not None:
+            setattr(caller_module, exec_class_name, ExecBatchOP)
+
+        # Keep a fallback registration in this module for compatibility.
         globals()[exec_class_name] = ExecBatchOP
         
         @wraps(func)
@@ -779,35 +789,40 @@ def dflow_batch_execution(
             
             # For local mode, process each item sequentially
             if mode == "local":
-                if isinstance(batch_input_value, (str, Path)):
-                    batch_paths = [Path(batch_input_value)]
-                else:
-                    batch_paths = [Path(p) for p in batch_input_value]
-                
-                # Read all structures
-                atoms_list = []
-                for path in batch_paths:
-                    atoms_list.extend(read(str(path), index=':'))
-                
-                # Process each sequentially
-                results = []
-                for i, atoms in enumerate(atoms_list):
-                    # Create task directory
-                    task_dir = Path(f"task.{i:05d}")
-                    task_dir.mkdir(parents=True, exist_ok=True)
-                    struct_file = task_dir / "structure.extxyz"
-                    write(str(struct_file), atoms)
-                    
-                    # Call function with task_path
-                    task_kwargs = all_kwargs.copy()
-                    task_kwargs["task_path"] = task_dir
-                    result = func(**task_kwargs)
-                    results.append(result)
-                
+                batch_keys = categorized_inputs.get("input_parameter", []) + categorized_inputs.get("input_artifact", [])
+                for key in batch_keys:
+                    if key not in all_kwargs:
+                        raise ValueError(f"Missing batch input key: {key}")
+                    if len(all_kwargs[key]) != slice_num:
+                        raise ValueError(
+                            f"Batch input '{key}' length mismatch: expected {slice_num}, got {len(all_kwargs[key])}"
+                        )
+
+                results = {}
+                for idx in range(slice_num):
+                    task_key = f"task_{idx:03d}"
+                    task_kwargs = dict(all_kwargs)
+
+                    # Replace batched inputs with a single item for this task.
+                    for key in batch_keys:
+                        task_kwargs[key] = all_kwargs[key][idx]
+
+                    try:
+                        results[task_key] = func(**task_kwargs)
+                    except Exception as e:
+                        logger.error(
+                            f"Local batch task '{task_key}' failed: {e}",
+                            exc_info=True,
+                        )
+                        results[task_key] = {
+                            "status": "error",
+                            "message": str(e),
+                        }
+
                 return {
                     "status": "success",
                     "results": results,
-                    "message": f"Processed {len(results)} tasks locally"
+                    "message": f"Processed {slice_num} tasks locally",
                 }
             
             # Remote execution via dflow
@@ -990,11 +1005,3 @@ def dflow_batch_execution(
             return result
         return wrapper
     return decorator
-
-
-# This triggers decorator execution and OP registration
-try:
-    from . import train  # This executes train.py and registers OPs
-    from . import ase_md  # If you have more modules with decorated functions
-except ImportError:
-    pass

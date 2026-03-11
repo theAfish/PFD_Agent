@@ -129,7 +129,7 @@ dpa_agent = LlmAgent(
         api_key=model_api_key
     ),
     #disallow_transfer_to_parent=True,
-    #disallow_transfer_to_peers=True,
+    disallow_transfer_to_peers=True,
     description=description,
     instruction=instruction,
     tools=[

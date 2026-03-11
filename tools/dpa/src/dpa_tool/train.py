@@ -22,7 +22,7 @@ from ase.atoms import Atoms
 import dpdata
 from deepmd.calculator import DP
 
-from .utils import run_command, dflow_remote_execution
+from matcreator.utils.utils import run_command, dflow_remote_execution
 
 logger=logging.getLogger(__name__)
 

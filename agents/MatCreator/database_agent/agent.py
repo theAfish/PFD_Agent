@@ -56,7 +56,7 @@ database_agent = LlmAgent(
     description=description,
     instruction=instruction,
     #disallow_transfer_to_parent=True,
-    #disallow_transfer_to_peers=True,
+    disallow_transfer_to_peers=True,
     tools=[
         AgentTool(sql_agent),
         toolset,

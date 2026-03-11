@@ -112,8 +112,8 @@ class MatCreatorFlowAgent(BaseAgent):
                     yield event
                 if ctx.session.state.get("execution_complete", False):
                     break    
-                
-            if ctx.session.state.get("recommended_next_action", "") == "replan" or ctx.session.state.get("recommended_next_action", "") == "mark_complete":
+            
+            if ctx.session.state.get("completion_status") == "completed" or ctx.session.state.get("recommended_next_action", "") == "mark_complete" or ctx.session.state.get("recommended_next_action", "") == "replan":
                 logger.info(f"[{self.name}]: Execution complete with recommended next action {ctx.session.state.get('recommended_next_action','')}, routing back to thinking agent.")
                 event_action = EventActions(state_delta={
                     "phase":"thinking",
@@ -126,7 +126,7 @@ class MatCreatorFlowAgent(BaseAgent):
                     )
                 yield event
                 
-            elif ctx.session.state.get("recommended_next_action", "") == "continue_execution":
+            elif ctx.session.state.get("recommended_next_action", "") == "request_user_input_but_no_need_to_replan":
                 logger.info(f"[{self.name}]: Execution agent recommends requesting user input, remain in execution phase")
                 event_action = EventActions(state_delta={"approval":False})
                 event = Event(
@@ -141,6 +141,10 @@ class MatCreatorFlowAgent(BaseAgent):
         """Override to prevent automatic phase changes after each tool call."""
         async for event in self.execution_agent.run_async(ctx):
                 yield event
+        if ctx.session.state.get("force_break", False):
+            logger.info(f"[{self.name}]: Skipping summarize step due to force_break")
+            ctx.session.state["force_break"] = False
+            return
                 
         logger.info(f"[{self.name}]: Summarizing result")
         async for event in summarize_agent.run_async(ctx):
@@ -197,6 +201,9 @@ def before_agent_callback_root(callback_context: CallbackContext):
     if 'execution_complete' not in state:
         callback_context.state['execution_complete'] = False
 
+    if 'force_break' not in state:
+        callback_context.state['force_break'] = False
+
     if 'execution_history' not in state:
         callback_context.state['execution_history'] = []
 
@@ -208,6 +215,9 @@ def before_agent_callback_root(callback_context: CallbackContext):
     
     if 'needs_replanning' not in state:
         callback_context.state['needs_replanning'] = False
+        
+    if 'completion_status' not in state:
+        callback_context.state['completion_status'] = "in_progress"
     
     # Initialize session metadata in database if not already exists
     try:
@@ -262,7 +272,7 @@ app = App(
         is_resumable=True,
     ),
     events_compaction_config=EventsCompactionConfig(
-        compaction_interval=5,
+        compaction_interval=3,
         overlap_size=1,
         summarizer=compaction_summarizer  # Pass the summarizer here
     )
