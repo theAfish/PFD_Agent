@@ -91,6 +91,10 @@ class PlanBuilderInput(BaseModel):
         ...,
         description="Immediate goal in one sentence.",
     )
+    comments: str = Field(
+        ...,
+        description="Additional comments or context for the plan-builder.",
+    )
 
 
 # ---------------------------------------------------------------------------

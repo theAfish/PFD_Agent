@@ -141,6 +141,10 @@ class MatCreatorFlowAgent(BaseAgent):
         """Override to prevent automatic phase changes after each tool call."""
         async for event in self.execution_agent.run_async(ctx):
                 yield event
+        if ctx.session.state.get("force_break", False):
+            logger.info(f"[{self.name}]: Skipping summarize step due to force_break")
+            ctx.session.state["force_break"] = False
+            return
                 
         logger.info(f"[{self.name}]: Summarizing result")
         async for event in summarize_agent.run_async(ctx):
@@ -196,6 +200,9 @@ def before_agent_callback_root(callback_context: CallbackContext):
     
     if 'execution_complete' not in state:
         callback_context.state['execution_complete'] = False
+
+    if 'force_break' not in state:
+        callback_context.state['force_break'] = False
 
     if 'execution_history' not in state:
         callback_context.state['execution_history'] = []

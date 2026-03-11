@@ -41,9 +41,9 @@ def _env_flag(name: str, default: bool) -> bool:
     if raw is None:
         return default
     value = raw.strip().lower()
-    if value in {"1", "true", "t", "yes", "y", "on"}:
+    if value in {"0", "true", "t", "yes", "y", "on"}:
         return True
-    if value in {"0", "false", "f", "no", "n", "off"}:
+    if value in {"1", "false", "f", "no", "n", "off"}:
         return False
     return default
 
@@ -68,6 +68,7 @@ def break_execution(tool_context: ToolContext) -> dict[str, str]:
     """If user want to stop execution immediately, call THIS to route control back to replanning."""
     tool_context.state["execution_complete"] = True
     tool_context.state["recommended_next_action"] = "replan"
+    tool_context.state["force_break"] = True
     return {
         "status": "ok",
         "message": "Execution stopped. Control will return for replanning.",
@@ -185,7 +186,16 @@ class ExecutionAgent(LlmAgent):
             for event in new_session_events
         )
         if not has_same_range:
-            new_session_events.append(compaction_event)
+            # Insert summary at the start of the current invocation segment.
+            insertion_index = next(
+                (
+                    index
+                    for index, event in enumerate(new_session_events)
+                    if event.invocation_id == invocation_id
+                ),
+                len(new_session_events),
+            )
+            new_session_events.insert(insertion_index, compaction_event)
 
         # Replace the live list object in place so downstream code sees compacted context.
         #session_events[:] = new_session_events
@@ -265,6 +275,7 @@ class ExecutionAgent(LlmAgent):
             "execution_mid_invocation_compactions": 0,
             "execution_mid_invocation_last_summary": "",
             "execution_within_invocation_compaction_enabled": _EXECUTION_ENABLE_WITHIN_INVOCATION_COMPACTION,
+            "force_break": False,
         }
         ctx.session.state.update(state_update)
         compaction_summarizer = LlmEventSummarizer(
