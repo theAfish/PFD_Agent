@@ -22,7 +22,6 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
 from ..constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
-from ..prompts.subagents import format_subagent_descriptions, SUBAGENTS
 from .planning_agent.agent import plan_builder_agent
 from .skill import _load_skill_registry, list_skill_name_descriptions, get_all_guides_text
 from .memory import load_memory
@@ -185,7 +184,7 @@ def before_tool_callback(
 ) -> Optional[dict]:
     """Inject state variables before specific agent tools are called."""
     if tool.name == "plan_builder_agent":
-        tool_context.state["agents"] = format_subagent_descriptions()
+        #tool_context.state["agents"] = format_subagent_descriptions()
         tool_context.state["memory"] = load_memory()
         skill_summaries = list_skill_name_descriptions()
         tool_context.state["skills"] = "\n".join(

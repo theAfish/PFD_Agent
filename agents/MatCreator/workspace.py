@@ -2,7 +2,7 @@
 
 The workspace root is resolved in this order:
 1. ``MATCLAW_WORKSPACE`` environment variable (absolute or relative to CWD)
-2. ``.workspace/`` in the current working directory
+2. ``~/.workspace/`` in the user's home directory
 
 On first use, call :func:`init_workspace` to create the directory tree and
 copy the built-in default knowledge into it so the user has a starting point.
@@ -13,9 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-
 from .constants import _KNOWLEDGE_PATH
-
 
 # ---------------------------------------------------------------------------
 # Path resolution
@@ -26,7 +24,7 @@ def get_workspace_root() -> Path:
     env_val = os.environ.get("MATCLAW_WORKSPACE", "")
     if env_val:
         return Path(env_val).expanduser().resolve()
-    return (Path.cwd() / ".workspace").resolve()
+    return (Path.home() / ".workspace").resolve()
 
 
 def workspace_skills_dir() -> Path:
