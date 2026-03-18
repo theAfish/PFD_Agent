@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.5 (2026-03-18)
+
+### Bug Fixes
+
+- Issues with endless execution loop
+  ([`fa79a02`](https://github.com/nlz25/PFD_Agent/commit/fa79a02a13ce7cf409ef39aa5b3fb0f07db305d9))
+
+
 ## v1.0.4 (2026-03-16)
 
 ### Bug Fixes
