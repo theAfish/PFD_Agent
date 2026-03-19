@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.0.7 (2026-03-19)
+
+### Bug Fixes
+
+- Issues with mattergen tool
+  ([`05cd41e`](https://github.com/nlz25/PFD_Agent/commit/05cd41ebaa0afca5337e3848912a0c2f06f523a9))
+
+- Simplify summarization and planning agent
+  ([`4a4fb38`](https://github.com/nlz25/PFD_Agent/commit/4a4fb3810b820061946548216089b7c4bda2cc8c))
+
+
 ## v1.0.6 (2026-03-19)
 
 ### Bug Fixes
