@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.0.6 (2026-03-19)
+
+### Bug Fixes
+
+- Issues with dynamic tool loading
+  ([`d7ab70f`](https://github.com/nlz25/PFD_Agent/commit/d7ab70f7f42f7eed2ed5d6006a1c7523d5cea05e))
+
+- Issues with mcp tools
+  ([`75b803c`](https://github.com/nlz25/PFD_Agent/commit/75b803c52614132b58d6d9b16719f5cb175e3ac4))
+
+- Restructure the planning agent
+  ([`db6df8c`](https://github.com/nlz25/PFD_Agent/commit/db6df8c514bfd19bb5f4c8ff7d2a2651f7e24fe4))
+
+
 ## v1.0.5 (2026-03-18)
 
 ### Bug Fixes
