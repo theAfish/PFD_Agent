@@ -1,3 +1,11 @@
+"""Toolset configuration for the MatCreator execution agent.
+
+Builds ``TOOLSETS`` — a list of ADK tool objects (sub-agent tools, MCP
+toolsets) that are injected into the execution agent at startup.  MCP
+server endpoints are probed via TCP before inclusion so that unavailable
+servers are skipped gracefully.
+"""
+
 # Tools configuration 
 import socket
 import logging
