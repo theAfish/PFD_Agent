@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.8 (2026-03-20)
+
+### Bug Fixes
+
+- Update workspace path
+  ([`11530ef`](https://github.com/nlz25/PFD_Agent/commit/11530efb88d52ffa6fe241c2eded2a2561a25f45))
+
+
 ## v1.0.7 (2026-03-19)
 
 ### Bug Fixes
