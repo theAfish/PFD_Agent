@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.9 (2026-03-23)
+
+### Bug Fixes
+
+- Add a new release branch for packaging
+  ([`22d3e4f`](https://github.com/nlz25/PFD_Agent/commit/22d3e4f9848c6b3838bb215690ed2d2e0daad38f))
+
+
 ## v1.0.8 (2026-03-20)
 
 ### Bug Fixes
