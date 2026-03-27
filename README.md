@@ -6,24 +6,27 @@ MatCreator is a **skill-based, agentic platform** for computational material sci
 ## Quick start
 ### Installation
 ```bash
-# Create and activate an environment (optional but recommended)
-conda create -n pfd python=3.12 -y
-conda activate pfd
+# Create and activate an environment with uv (optional but recommended)
 
-# From the project root
-pip install -U pip
-pip install -e .
+pip install uv
+uv venv .venv --python 3.12
+
+source .venv/bin/activate
+uv pip install -e .
 ```
 
-### Set up MCP servers for tools
+### Skills
 MatCreator follows a modular design principle: skills are text files that define metadata, procedures and workflows. Some skills may require specialized tools (configured by `$PROJECT/agents/MatCreator/tools.py`), and some of them, e.g. tools for DFT calculations, may be hosted on MCP servers.
+
+> The default domain-based computational materials datasets is located at `database/domain_datasets.tar.gz`, which should be extracted for database skill usage. (See `tools/database/README.md`)
+
+> Check the `README.md` in `skills/$SKILL` if you really wanna use them. 
+
 
 > **Note — transitioning from MCP servers to skills:** MatCreator is progressively moving tool logic out of dedicated MCP servers and into self-contained skills. A skill bundles its own workflow instructions, helper scripts, and configuration alongside the `.md` file, so it can be run with only a general-purpose shell/Python tool rather than a running server process. If a capability you previously used via an MCP server is no longer listed under `tools/`, check `agents/MatCreator/knowledge/skills/` — it may have been migrated to a skill. MCP servers are retained only for tools that genuinely require a persistent service (e.g. a remote job scheduler or a database backend).
 
 
-
-
-#### Manual server setup
+####  Server setup (Optional)
 For example, to set up a `mcp` server for `ABACUS` DFT software, `uv run` the script: 
 
 ```bash
@@ -32,46 +35,21 @@ uv sync
 
 uv run server.py --port 50001
 ```
-If you prefer `bohr-agent-sdk` wrapper which supports submitting tool job to `Bohrium` platform, set `--model dp`; otherwise you get standard `FastMCP` experience. You may need to set environment variables specific to the mcp server at `tools/$TOOLNAME/.env`, which can be referenced in `tools/$TOOLNAME/README.md`
+ You may need to set environment variables specific to the mcp server at `tools/$TOOLNAME/.env`, which can be referenced in `tools/$TOOLNAME/README.md`
 
-#### Automated Server Management
 
-For convenience, you can use the provided startup script to manage all MCP servers at once:
-
-```bash
-# Start all MCP servers
-python script/start_mcp_servers.py start
-
-# Check server status
-python script/start_mcp_servers.py status
-
-# Stop all servers
-python script/start_mcp_servers.py stop
-
-# Start specific servers only
-python script/start_mcp_servers.py start database dpa vasp
-
-# Start servers within current python environment
-python script/start_mcp_servers.py start database dpa vasp --no-uv
-
-# Stop specific servers only
-python script/start_mcp_servers.py stop database dpa
-```
-
-The script automatically handles port assignments and logging for each server, making it easier to manage the entire MCP server ecosystem in your local development environment. The server log would be sync at `logs/mcp_servers` under project root.
-
-> The default domain-based computational materials datasets is located at `database/domain_datasets.tar.gz`, which should be extracted for database tool usage. (See `tools/database/README.md`)
-
-> Check the `README.md` in `skills/$SKILL` if you really wanna use them. 
 
 ### Running agent networks
 #### Setting constants
-Populate `agents/MatCreator/.env` with your model API credentials.
+Populate `agents/MatCreator/.env` with your model API credentials. Some skills may need additional env variables.
 
 ```env
 LLM_MODEL= "MODEL_TYPE"
 LLM_API_KEY="API_KEYS",
 LLM_BASE_URL="BASE_URL",
+
+# SKILL_RELATED_ENV
+# ...
 ```
 
 If you prefer different LLM models for sub-agents, you can override the default setting at the `.env` file within sub-agents directories. 
