@@ -24,7 +24,7 @@ from .thinking_agent.workspace_tools import (
     init_workspace_tool,
 )
 
-from .util_tools import show_plot
+from .util_tools import show_plot, show_structure, show_artifact
 
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 
@@ -54,7 +54,9 @@ TOOLSETS.extend(
     run_bash,
     run_python_file,
     init_workspace_tool,
-    show_plot]
+    show_plot,
+    show_structure,
+    show_artifact]
 )
 
 # Database toolset
