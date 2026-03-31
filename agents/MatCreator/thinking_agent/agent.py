@@ -21,6 +21,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools.base_tool import BaseTool
 
 from ..constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from .trajectory import append_trajectory_entry
 from .planning_agent.agent import plan_builder_agent
 from .skill import (
     list_skill_name_descriptions,
@@ -99,6 +100,15 @@ def load_skill_context(skill_name: str, tool_context: ToolContext) -> dict:
     }
 
 
+def clear_current_skill(tool_context: ToolContext) -> dict:
+    """Clear the active skill context from session state.
+    Call this after finishing a skill-specific step to avoid stale context.
+    """
+    tool_context.state["active_skill"] = None
+    tool_context.state["skill_instruction"] = None
+    return {"status": "ok", "message": "Active skill context cleared."}
+
+
 # ---------------------------------------------------------------------------
 # Inline summarize_agent tool: records step outcomes into session state
 # ---------------------------------------------------------------------------
@@ -137,7 +147,7 @@ _summarize_tool_agent = LlmAgent(
 # ---------------------------------------------------------------------------
 # Intent tool
 # ---------------------------------------------------------------------------
-class WorkflowClassification(BaseModel):
+class USERINTENT(BaseModel):
     """Classification of workflow type based on user intent."""
     goal: str = Field(
         ...,
@@ -150,15 +160,18 @@ class WorkflowClassification(BaseModel):
         #max_length=300,
     )
 
-_CLASSIFICATION_INSTRUCTION = f"""
-You are an agent that determine user goal. 
+_INTENT_INSTRUCTION = """
+You are an agent that determines the user's goal.
 
 ## Task
-- Infer the user's goal as one concise sentence using the correct domain terminology above.
-- Provide short reasoning explaining which workflow type applies.
+- Infer the user's goal as one concise sentence using correct domain terminology.
+- Provide short reasoning explaining why you interpreted the goal that way.
 
-## Rule
-Output in JSON format
+Output ONLY a JSON object — no markdown fences, no extra text:
+{
+  "goal": "<single-sentence statement of the user's goal>",
+  "reasoning": "<brief explanation of why you interpreted it this way>"
+}
 """
 
 intent_tool_agent = LlmAgent(
@@ -169,8 +182,8 @@ intent_tool_agent = LlmAgent(
         api_key=_model_api_key,
     ),
     description="Determine user's goal.",
-    instruction=_CLASSIFICATION_INSTRUCTION,
-    output_schema=WorkflowClassification,
+    instruction=_INTENT_INSTRUCTION,
+    output_schema=USERINTENT,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )
@@ -223,6 +236,7 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
         ("active_skill", None),
         ("skill_instruction", None),
         ("summarize", None),
+        ("trajectory_step", 0),
     ]:
         if key not in state:
             callback_context.state[key] = default
@@ -268,6 +282,22 @@ def after_tool_callback(
     elif tool_name == "summarize_agent":
         tool_context.state["summarize"] = tool_response
 
+        # --- trajectory logging ---
+        try:
+            session_id = tool_context._invocation_context.session.id
+            step_index = (tool_context.state.get("trajectory_step") or 0) + 1
+            tool_context.state["trajectory_step"] = step_index
+            log_path = append_trajectory_entry(
+                session_id=session_id,
+                step_index=step_index,
+                goal=tool_context.state.get("goal"),
+                active_skill=tool_context.state.get("active_skill"),
+                summarize_response=tool_response,
+            )
+            logger.info("Trajectory entry %d written to %s", step_index, log_path)
+        except Exception as _exc:  # never block the main flow
+            logger.warning("Failed to write trajectory entry: %s", _exc)
+
     return None
 
 # ---------------------------------------------------------------------------
@@ -291,6 +321,7 @@ thinking_agent = LlmAgent(
         AgentTool(_summarize_tool_agent),
         AgentTool(intent_tool_agent),
         FunctionTool(load_skill_context),
+        FunctionTool(clear_current_skill),
         FunctionTool(load_guide_content),
         FunctionTool(load_skill_content),
         FunctionTool(read_memory),
