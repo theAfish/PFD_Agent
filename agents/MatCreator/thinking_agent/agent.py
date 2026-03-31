@@ -21,6 +21,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools.base_tool import BaseTool
 
 from ..constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from .trajectory import append_trajectory_entry
 from .planning_agent.agent import plan_builder_agent
 from .skill import (
     list_skill_name_descriptions,
@@ -235,6 +236,7 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
         ("active_skill", None),
         ("skill_instruction", None),
         ("summarize", None),
+        ("trajectory_step", 0),
     ]:
         if key not in state:
             callback_context.state[key] = default
@@ -279,6 +281,22 @@ def after_tool_callback(
 
     elif tool_name == "summarize_agent":
         tool_context.state["summarize"] = tool_response
+
+        # --- trajectory logging ---
+        try:
+            session_id = tool_context._invocation_context.session.id
+            step_index = (tool_context.state.get("trajectory_step") or 0) + 1
+            tool_context.state["trajectory_step"] = step_index
+            log_path = append_trajectory_entry(
+                session_id=session_id,
+                step_index=step_index,
+                goal=tool_context.state.get("goal"),
+                active_skill=tool_context.state.get("active_skill"),
+                summarize_response=tool_response,
+            )
+            logger.info("Trajectory entry %d written to %s", step_index, log_path)
+        except Exception as _exc:  # never block the main flow
+            logger.warning("Failed to write trajectory entry: %s", _exc)
 
     return None
 
