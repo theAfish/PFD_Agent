@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.18 (2026-04-02)
+
+### Bug Fixes
+
+- Add trajectory.py
+  ([`c20c055`](https://github.com/nlz25/PFD_Agent/commit/c20c0557686a98452c115f4f723d6cf4bc829e89))
+
+
 ## v1.0.17 (2026-03-31)
 
 ### Bug Fixes
