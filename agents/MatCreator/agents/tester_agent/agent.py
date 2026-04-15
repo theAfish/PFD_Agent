@@ -16,7 +16,9 @@ from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.function_tool import FunctionTool
-
+from google.adk.skills import models
+from google.adk.tools import skill_toolset
+from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, refresh_skills
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from ..thinking_agent.workspace_tools import (
     create_skill,
@@ -95,6 +97,45 @@ def _tester_before_agent_callback(callback_context: CallbackContext) -> None:
 # Agent instance
 # ---------------------------------------------------------------------------
 
+
+
+## Create a "skill creator" skill.
+
+skill_creator = models.Skill(
+    frontmatter=models.Frontmatter(
+        name="skill-creator",
+        description=(
+            "Creates new ADK-compatible skill definitions from requirements."
+            " Generates complete SKILL.md files following the Agent Skills"
+            " specification at agentskills.io."
+        ),
+    ),
+    instructions=(
+        "When asked to create a new skill, generate a complete SKILL.md file.\n\n"
+        "Read `references/skill-spec.md` for the format specification.\n"
+        "Read `references/example-skill.md` for a working example.\n\n"
+        "Follow these rules:\n"
+        "1. Name must be kebab-case, max 64 characters\n"
+        "2. Description must be under 1024 characters\n"
+        "3. Instructions should be clear, step-by-step\n"
+        "4. Reference files in references/ for detailed domain knowledge\n"
+        "5. Keep SKILL.md under 500 lines, put details in references/\n"
+        "6. Output the complete file content the user can save directly\n"
+    ),
+    resources=models.Resources(
+        references={
+            "skill-spec.md": "# Agent Skills Specification (agentskills.io)...",
+            "example-skill.md": "# Example: Code Review Skill...",
+        }
+    ),
+)
+
+skill_creator_tool = skill_toolset.SkillToolset(
+    skills=[skill_creator]
+    )
+
+
+
 tester_agent = LlmAgent(
     name="tester_agent",
     model=LiteLlm(
@@ -108,16 +149,18 @@ tester_agent = LlmAgent(
     ),
     instruction=_TESTER_AGENT_INSTRUCTION,
     tools=[
-        #FunctionTool(list_skill_name_descriptions),
-        #FunctionTool(load_skill_content),
         FunctionTool(create_skill),
         FunctionTool(write_workspace_file),
         FunctionTool(read_workspace_file),
-        FunctionTool(list_workspace_skills),
+        #FunctionTool(list_workspace_skills),
         FunctionTool(run_python),
         FunctionTool(run_bash),
+        skill_creator_tool,
+        ALL_SKILLS_TOOLSET,
+        FunctionTool(refresh_skills),
     ],
     before_agent_callback=_tester_before_agent_callback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )
+

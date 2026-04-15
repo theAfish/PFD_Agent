@@ -20,6 +20,8 @@ EXECUTION_ENABLE_WITHIN_INVOCATION_COMPACTION: str|int = os.environ.get("EXECUTI
 EXECUTION_COMPACT_KEEP_TAIL: int = int(os.environ.get("EXECUTION_COMPACT_KEEP_TAIL", "10"))
 EXECUTION_COMPACT_EVERY_EVENTS: int = int(os.environ.get("EXECUTION_COMPACT_EVERY_EVENTS", "5"))
 
+
+_AGENT_PATH = _script_dir
 _KNOWLEDGE_PATH= _script_dir / "knowledge"
 _SKILLS_DIR = _script_dir / "skills"
 _GUIDES_DIR = _script_dir/ "guides"

@@ -29,17 +29,10 @@ from .planning import validate_plan
 #    load_guide_content,
 #    load_skill_content,
 #)
-from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET
+from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, refresh_skills
 from ...guide import ALL_GUIDES
 from .memory import update_memory, read_memory
 from .workspace_tools import (
-    write_workspace_file,
-    read_workspace_file,
-    list_workspace_skills,
-    create_skill,
-    run_python,
-    run_bash,
-    run_python_file,
     init_workspace_tool,
 )
 #from ...tools import TOOLSETS
@@ -381,16 +374,13 @@ thinking_agent = LlmAgent(
         FunctionTool(validate_plan),
         AgentTool(_summarize_tool_agent),
         AgentTool(intent_tool_agent),
-        #FunctionTool(load_skill_context),
-        #FunctionTool(clear_current_skill),
         FunctionTool(confirm_plan_and_start_execution),
         FunctionTool(request_skill_testing),
         FunctionTool(load_guide),
-        #FunctionTool(load_guide_content),
-        #FunctionTool(load_skill_content),
         FunctionTool(read_memory),
-        update_memory,
-        #FunctionTool(init_workspace_tool),
+        FunctionTool(update_memory),
+        FunctionTool(init_workspace_tool),
+        FunctionTool(refresh_skills),
         #FunctionTool(list_workspace_skills),
         #FunctionTool(create_skill),
         #FunctionTool(write_workspace_file),
