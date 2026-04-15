@@ -2,6 +2,34 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-04-15)
+
+### Bug Fixes
+
+- Add unittest
+  ([`e0cff24`](https://github.com/nlz25/PFD_Agent/commit/e0cff24b5250e1e4bd72bc63913c18578d16ac2f))
+
+- Change skills location
+  ([`01d408c`](https://github.com/nlz25/PFD_Agent/commit/01d408cb948ab5b0d91aad71b34a38d5e65ff0a5))
+
+- Restore the loop design
+  ([`de4202f`](https://github.com/nlz25/PFD_Agent/commit/de4202fa7fe7ab5b1a8e180e58f8d7463641a2f2))
+
+- Restructure agent team and skills
+  ([`b731197`](https://github.com/nlz25/PFD_Agent/commit/b73119738956c52396fa86ae34d344321acbe358))
+
+- Update skill refreshing mechanism
+  ([`de46787`](https://github.com/nlz25/PFD_Agent/commit/de46787ecda86a8492b3d9480daf73216c9af472))
+
+- Update web interface
+  ([`492db55`](https://github.com/nlz25/PFD_Agent/commit/492db5576c9af5cab7f5ce300d7b89657d3bc372))
+
+### Features
+
+- Add workspace control
+  ([`b9ff30f`](https://github.com/nlz25/PFD_Agent/commit/b9ff30f8ec469a5da11a1c69e7173a0e19a2c661))
+
+
 ## v1.0.21 (2026-04-13)
 
 ### Bug Fixes
