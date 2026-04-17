@@ -63,7 +63,7 @@ cd "${CGCNN_ROOT}"
 python predict.py pre-trained/formation-energy-per-atom.pth.tar dataset_dir
 ```
 
-The run generates `test_results.csv` in the dataset directory. For classification tasks, predicted values are probabilities between 0 and 1.
+The upstream CGCNN run writes `test_results.csv` under `${CGCNN_ROOT}`. After prediction, always copy that file into the dataset_dir. For classification tasks, predicted values are probabilities between 0 and 1.
 
 ## What to Report
 

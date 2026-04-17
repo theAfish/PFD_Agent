@@ -10,6 +10,8 @@ Input expectations:
 
 Output format:
 - ``material_id,<property_name>,cif``
+
+Optionally writes train/val/test CSV splits.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -42,6 +45,29 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional output CSV path. Default: <data_dir>/mattergen_property.csv.",
     )
+    parser.add_argument(
+        "--split-dir",
+        default=None,
+        help="Optional directory for train.csv and val.csv. Default: <data_dir>/<output_stem>_csvs.",
+    )
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=0.1,
+        help="Validation split ratio in (0, 1). Default: 0.1.",
+    )
+    parser.add_argument(
+        "--test-ratio",
+        type=float,
+        default=0.1,
+        help="Test split ratio in (0, 1). Default: 0.1.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for train/val splitting. Default: 42.",
+    )
     return parser
 
 
@@ -50,6 +76,13 @@ def _read_cif_text(data_dir: Path, material_id: str) -> str:
     if not cif_path.exists():
         raise FileNotFoundError(f"CIF file not found for id '{material_id}': {cif_path}")
     return cif_path.read_text(encoding="utf-8")
+
+
+def _write_rows(output_csv: Path, property_name: str, rows: list[list[str]]) -> None:
+    with output_csv.open("w", encoding="utf-8", newline="") as f_out:
+        writer = csv.writer(f_out, quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(["material_id", property_name, "cif"])
+        writer.writerows(rows)
 
 
 def main() -> int:
@@ -68,14 +101,25 @@ def main() -> int:
         output_csv = data_dir / "mattergen_property.csv"
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
+    if args.split_dir:
+        split_dir = Path(args.split_dir).expanduser().resolve()
+    else:
+        split_dir = data_dir / f"{output_csv.stem}_csvs"
+    split_dir.mkdir(parents=True, exist_ok=True)
+    train_csv = split_dir / "train.csv"
+    val_csv = split_dir / "val.csv"
+    test_csv = split_dir / "test.csv"
 
-    rows_written = 0
-    with input_csv.open("r", encoding="utf-8", newline="") as f_in, output_csv.open(
-        "w", encoding="utf-8", newline=""
-    ) as f_out:
+    if not 0 < args.val_ratio < 1:
+        raise ValueError("--val-ratio must be in (0, 1).")
+    if not 0 < args.test_ratio < 1:
+        raise ValueError("--test-ratio must be in (0, 1).")
+    if args.val_ratio + args.test_ratio >= 1:
+        raise ValueError("--val-ratio + --test-ratio must be < 1.")
+
+    rows: list[list[str]] = []
+    with input_csv.open("r", encoding="utf-8", newline="") as f_in:
         reader = csv.reader(f_in)
-        writer = csv.writer(f_out, quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(["material_id", args.property_name, "cif"])
 
         for line_no, row in enumerate(reader, start=1):
             if not row or all(not cell.strip() for cell in row):
@@ -89,8 +133,37 @@ def main() -> int:
             material_id = row[0].strip()
             property_value = row[2].strip()
             cif_text = _read_cif_text(data_dir, material_id)
-            writer.writerow([material_id, property_value, cif_text])
-            rows_written += 1
+            rows.append([material_id, property_value, cif_text])
+
+    rng = random.Random(args.seed)
+    shuffled_rows = rows[:]
+    rng.shuffle(shuffled_rows)
+
+    if len(shuffled_rows) < 3:
+        raise ValueError(
+            "At least 3 rows are required to create non-empty train/val/test splits."
+        )
+
+    val_count = int(len(shuffled_rows) * args.val_ratio)
+    test_count = int(len(shuffled_rows) * args.test_ratio)
+    if val_count == 0 or test_count == 0:
+        raise ValueError(
+            "Dataset is too small for the requested split ratios: both validation and test "
+            "splits must contain at least 1 row."
+        )
+    val_rows = shuffled_rows[:val_count]
+    test_rows = shuffled_rows[val_count:val_count + test_count]
+    train_rows = shuffled_rows[val_count + test_count:]
+
+    if not train_rows:
+        raise ValueError(
+            "Dataset is too small for the requested split ratios: training split must contain at least 1 row."
+        )
+
+    _write_rows(output_csv, args.property_name, rows)
+    _write_rows(train_csv, args.property_name, train_rows)
+    _write_rows(val_csv, args.property_name, val_rows)
+    _write_rows(test_csv, args.property_name, test_rows)
 
     print(
         json.dumps(
@@ -99,8 +172,18 @@ def main() -> int:
                 "data_dir": str(data_dir),
                 "input_csv": str(input_csv),
                 "output_csv": str(output_csv),
+                "split_dir": str(split_dir),
+                "train_csv": str(train_csv),
+                "val_csv": str(val_csv),
+                "test_csv": str(test_csv),
                 "property_name": args.property_name,
-                "rows_written": rows_written,
+                "rows_written": len(rows),
+                "train_rows": len(train_rows),
+                "val_rows": len(val_rows),
+                "test_rows": len(test_rows),
+                "val_ratio": args.val_ratio,
+                "test_ratio": args.test_ratio,
+                "seed": args.seed,
             },
             ensure_ascii=True,
         )
