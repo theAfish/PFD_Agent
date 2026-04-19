@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Start the MatCreator ADK agent server.
-
-Determines the workspace root (via MATCLAW_WORKSPACE env var or ~/.workspace),
-changes into it, then launches either `adk web` or `adk api_server` pointing at
-the project agents directory.
+"""MatCreator CLI.
 
 Usage:
-    python script/start_agent.py [OPTIONS] COMMAND [ARGS]
+    matcreator [OPTIONS] COMMAND [ARGS]
 
 Commands:
-    web         Launch the ADK web UI (default).
+    web         Launch the ADK web UI.
     api-server  Launch the ADK API server (used by the Streamlit app).
+    run         Run the agent non-interactively on a single prompt.
 
 Examples:
-    python script/start_agent.py web
-    python script/start_agent.py web --reload-agents
-    python script/start_agent.py web --port 8080 --host 0.0.0.0
-    python script/start_agent.py api-server
-    python script/start_agent.py api-server --port 8001
-    MATCLAW_WORKSPACE=/data/ws python script/start_agent.py api-server
+    matcreator web
+    matcreator web --reload-agents --port 8080
+    matcreator api-server
+    matcreator run -p "Build a silicon FCC structure"
+    matcreator run -f prompt.txt --output-format json -o result.json
+    MATCLAW_WORKSPACE=/data/ws matcreator run -p "hello"
 """
 
+import asyncio
+import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -91,7 +91,7 @@ def _run(cmd: list[str]) -> None:
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def main():
-    """Start the MatCreator ADK agent server."""
+    """MatCreator CLI — manage and run the MatCreator agent."""
 
 
 @main.command("web")
@@ -144,6 +144,133 @@ def api_server(host, port, workspace, log_level, reload_agents,
         cmd.append("--reload_agents")
 
     _run(cmd)
+
+
+# ---------------------------------------------------------------------------
+# Non-interactive runner core (used by `run` subcommand and benchmarks)
+# ---------------------------------------------------------------------------
+
+async def run_agent_async(
+    workspace_dir: str,
+    prompt: str,
+    max_turns: int = 50,
+) -> dict:
+    """Run the agent non-interactively on a single prompt.
+
+    Returns a dict with keys: answer, model_name, num_turns, is_error,
+    duration_ms, num_events.
+    """
+    os.environ["MATCLAW_WORKSPACE"] = str(Path(workspace_dir).resolve())
+
+    from google.adk.runners import InMemoryRunner
+    from google.genai import types
+
+    from agents.MatCreator.agent import app
+
+    runner = InMemoryRunner(app=app)
+
+    session = await runner.session_service.create_session(
+        app_name=app.name,
+        user_id="cli",
+        state={"benchmark_mode": True},
+    )
+
+    user_message = types.Content(
+        role="user",
+        parts=[types.Part(text=prompt)],
+    )
+
+    start_ms = time.monotonic_ns() // 1_000_000
+    events = []
+    turn_count = 0
+    is_error = False
+    error_msg = ""
+
+    try:
+        async for event in runner.run_async(
+            user_id="cli",
+            session_id=session.id,
+            new_message=user_message,
+        ):
+            events.append(event)
+            if hasattr(event, "is_final_response") and event.is_final_response():
+                turn_count += 1
+            if turn_count >= max_turns:
+                break
+    except Exception as exc:
+        is_error = True
+        error_msg = str(exc)
+
+    duration_ms = (time.monotonic_ns() // 1_000_000) - start_ms
+
+    # Extract final answer from the last event with text content
+    answer = ""
+    for event in reversed(events):
+        if event.content and event.content.parts:
+            for part in event.content.parts:
+                if hasattr(part, "text") and part.text:
+                    answer = part.text
+                    break
+            if answer:
+                break
+
+    if is_error and not answer:
+        answer = error_msg
+
+    return {
+        "answer": answer,
+        "model_name": os.environ.get("LLM_MODEL", "matcreator"),
+        "num_turns": turn_count,
+        "is_error": is_error,
+        "duration_ms": duration_ms,
+        "num_events": len(events),
+    }
+
+
+# ---------------------------------------------------------------------------
+# `matcreator run` subcommand
+# ---------------------------------------------------------------------------
+
+@main.command("run")
+@click.option("--workspace", default=None, metavar="DIR",
+              help="Override the workspace root directory (also settable via MATCLAW_WORKSPACE).")
+@click.option("-p", "--prompt", "prompt_text", default=None,
+              help="Inline prompt text to send to the agent.")
+@click.option("-f", "--prompt-file", default=None, type=click.Path(exists=True),
+              help="Read prompt from a file (mutually exclusive with -p).")
+@click.option("--output-format", "output_format",
+              type=click.Choice(["text", "json"], case_sensitive=False),
+              default="text", show_default=True,
+              help="Output format: 'text' prints the answer, 'json' prints full structured result.")
+@click.option("-o", "--output", "output_file", default=None, type=click.Path(),
+              help="Write output to a file instead of stdout.")
+@click.option("--max-turns", default=50, show_default=True, type=int,
+              help="Maximum agent turns before stopping.")
+def run_cmd(workspace, prompt_text, prompt_file, output_format, output_file, max_turns):
+    """Run the agent non-interactively on a single prompt."""
+    if prompt_text and prompt_file:
+        raise click.UsageError("Use either -p/--prompt or -f/--prompt-file, not both.")
+    if not prompt_text and not prompt_file:
+        raise click.UsageError("Provide a prompt via -p/--prompt or -f/--prompt-file.")
+
+    if prompt_file:
+        prompt_text = Path(prompt_file).read_text().strip()
+
+    ws_root = Path(workspace).expanduser().resolve() if workspace else _resolve_workspace()
+    ws_root.mkdir(parents=True, exist_ok=True)
+
+    result = asyncio.run(run_agent_async(str(ws_root), prompt_text, max_turns))
+
+    if output_format == "json":
+        content = json.dumps(result, ensure_ascii=False, indent=2)
+    else:
+        content = result["answer"]
+
+    if output_file:
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_file).write_text(content)
+    else:
+        click.echo(content)
 
 
 if __name__ == "__main__":

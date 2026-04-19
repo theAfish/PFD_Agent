@@ -157,4 +157,19 @@ class PlanningExecutionOrchestrator(BaseAgent):
                 continue  # loop back to planner
 
             # ── No flag set — planner handled the turn conversationally ───────
+            # In benchmark mode, auto-approve if a valid plan exists
+            if state.get("benchmark_mode", False):
+                plan = state.get("plan")
+                steps = _extract_steps(plan)
+                if steps:
+                    logger.info(
+                        "[orchestrator] benchmark mode: auto-approving plan with %d steps",
+                        len(steps),
+                    )
+                    state["execution_approved"] = True
+                    state["current_step_index"] = 0
+                    continue
+                logger.warning(
+                    "[orchestrator] benchmark mode: no valid plan to auto-approve, exiting"
+                )
             break

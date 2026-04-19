@@ -64,19 +64,44 @@ A simple web UI that supports artifact upload/download, structure visualization 
 ```bash
 #We strongly recommend running the following script in the background and saving the runtime logs.
  
-nohup python script/start_agent.py api-server >> server.log &
+nohup matcreator api-server >> server.log &
 nohup streamlit run web/streamlit_app.py >> web.log &
 ```
 ![The web UI for MatCreator](docs/images/agent_plot.png)
 
-#### Starting agent (old style)
+#### Non-interactive CLI mode
+
+Run the agent on a single prompt without starting any server:
 
 ```bash
-python script/start_agent.py web
+# Inline prompt
+matcreator run -p "Build a silicon FCC structure"
+
+# Prompt from a file
+matcreator run -f prompt.txt
+
+# Save the answer to a file
+matcreator run -p "Build a silicon FCC structure" -o result.txt
+
+# Full structured JSON output (includes turn count, duration, etc.)
+matcreator run -p "Build a silicon FCC structure" --output-format json -o result.json
+
+# Override the workspace directory
+matcreator run --workspace /data/my_workspace -p "Build a silicon FCC structure"
+# or via environment variable
+MATCLAW_WORKSPACE=/data/my_workspace matcreator run -p "Build a silicon FCC structure"
+```
+
+Each run creates a session directory under `<workspace>/sessions/<session-id>/` where any files produced by the agent are saved.
+
+#### Default adk web server (old style)
+
+```bash
+matcreator run web
 ```
 This would set up the MatCreator agent network through the default `adk web` server. You can tune the LLM model and communication settings for the agents.
 
-The default agent workspace is located at `agents/MatCreator/.workspace`, where skills, memory, etc., are stored. 
+The default agent workspace is located at `agents/MatCreator/.workspace`, where skills, memory, etc., are stored.
 
 ## Skills
 MatCreator follows a modular design principle: skills are text files that define metadata, procedures and workflows. Some skills may require specialized tools (configured by `$PROJECT/agents/MatCreator/tools.py`), and some of them, e.g. tools for DFT calculations, may be hosted on MCP servers.
