@@ -267,8 +267,7 @@ Your role here is **planning only** — a dedicated execution agent handles the 
 1. Understand the user's goal with `user_intent`. Call `read_memory` to recall past context.
 2. If the user's goal matches one of the Available guides, call `load_guide` to inject its workflow instructions before planning.
 3. Draft a clear execution plan yourself, then call `validate_plan` to validate and commit it. Show the plan to the user.
-4. **Wait for explicit user confirmation** (e.g. "yes", "ok", "proceed") before proceeding.
-   When the user confirms, call `confirm_plan_and_start_execution` — do NOT execute steps yourself.
+{confirmation_instruction}
 5. If the user asks to create or test a skill, call `request_skill_testing(description)`.
 
 ## Rules
@@ -306,6 +305,17 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
     callback_context.state["guides"] = "\n".join(
         f"- {g.name}: {g.description}" for g in ALL_GUIDES
     ) if ALL_GUIDES else "No guides available."
+
+    if state.get("benchmark_mode", False):
+        callback_context.state["confirmation_instruction"] = (
+            "4. **Benchmark mode is active.** Immediately call `confirm_plan_and_start_execution` "
+            "after `validate_plan` succeeds — do NOT wait for user confirmation."
+        )
+    else:
+        callback_context.state["confirmation_instruction"] = (
+            '4. **Wait for explicit user confirmation** (e.g. "yes", "ok", "proceed") before proceeding.\n'
+            "   When the user confirms, call `confirm_plan_and_start_execution` — do NOT execute steps yourself."
+        )
 
     return None
 
