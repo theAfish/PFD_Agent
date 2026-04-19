@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-04-19)
+
+### Bug Fixes
+
+- Update skill structure
+  ([`9cd18da`](https://github.com/nlz25/PFD_Agent/commit/9cd18da30901c600a472cd7bb786942303c4ba59))
+
+### Features
+
+- Add non-interactive CLI mode
+  ([`e5de004`](https://github.com/nlz25/PFD_Agent/commit/e5de004973b4ca7393b34897a1f4370bdf5156c9))
+
+
 ## v1.1.1 (2026-04-15)
 
 ### Bug Fixes
