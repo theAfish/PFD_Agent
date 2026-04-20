@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.2.1 (2026-04-20)
+
+### Bug Fixes
+
+- Add mattersim skill
+  ([`7015bdd`](https://github.com/nlz25/PFD_Agent/commit/7015bdd58c873068b39977de866f4c1211e1c6fc))
+
+- Update CLI
+  ([`7e7ce8b`](https://github.com/nlz25/PFD_Agent/commit/7e7ce8b8d2ade2b78e856e9ddd9a5532775db286))
+
+
 ## v1.2.0 (2026-04-19)
 
 ### Bug Fixes
