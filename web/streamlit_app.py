@@ -65,6 +65,16 @@ def resolve_path(path: str) -> str:
         return str(p)
     return str(WORKSPACE_ROOT / p)
 
+
+def is_structure_file(path: str | Path) -> bool:
+    """Return True for structure files that can be previewed in the UI."""
+    p = Path(path)
+    suffix = p.suffix.lower()
+    return suffix in {".cif", ".xyz", ".extxyz", ".vasp"} or p.name.upper() in {
+        "POSCAR",
+        "CONTCAR",
+    }
+
 # Set page config
 st.set_page_config(
     page_title="MatCreator",
@@ -78,8 +88,10 @@ APP_NAME = "MatCreator"
 
 # Initialize session state variables
 if "user_id" not in st.session_state:
-    # using default user name "user"
-    st.session_state.user_id = f"user"
+    st.session_state.user_id = None
+
+if "login_username" not in st.session_state:
+    st.session_state.login_username = ""
     
 if "session_id" not in st.session_state:
     st.session_state.session_id = None
@@ -133,6 +145,41 @@ if "configured_metrics" not in st.session_state:
 # Track the structure currently shown in the right panel
 if "selected_structure_path" not in st.session_state:
     st.session_state.selected_structure_path = None
+
+
+def _reset_user_session_state() -> None:
+    """Clear user-scoped UI state when switching identities."""
+    st.session_state.session_id = None
+    st.session_state.messages = []
+    st.session_state.audio_files = []
+    st.session_state.artifacts = []
+    st.session_state.structure_paths = []
+    st.session_state.available_sessions = []
+    st.session_state.selected_structure_path = None
+    st.session_state.eval_sets = []
+    st.session_state.eval_results = []
+    st.session_state.selected_eval_set = None
+    st.session_state.selected_eval_cases = []
+
+
+def _login_user(username: str) -> bool:
+    """Set the active user if the provided username is valid."""
+    normalized = username.strip()
+    if not normalized:
+        st.warning("Please enter a username.")
+        return False
+
+    if normalized != st.session_state.user_id:
+        _reset_user_session_state()
+    st.session_state.user_id = normalized
+    return True
+
+
+def _logout_user() -> None:
+    """Clear the active user and all user-scoped UI state."""
+    _reset_user_session_state()
+    st.session_state.user_id = None
+    st.session_state.login_username = ""
 
 
 def create_metric_config(metric_name, threshold, judge_model="gemini-2.5-flash", num_samples=5, **kwargs):
@@ -232,6 +279,28 @@ def render_invocation(invocation_data):
         if response_parts:
             with st.chat_message("assistant"):
                 render_content_parts(response_parts, role="assistant")
+
+
+def render_stream_timeline(container, timeline):
+    """Render streaming events in the exact order they arrive."""
+    with container.container():
+        for event in timeline:
+            event_type = event.get("type")
+
+            if event_type == "thought":
+                with st.expander("🤔 Thinking...", expanded=False):
+                    st.markdown(event.get("text", ""))
+
+            elif event_type == "function_call":
+                with st.expander(event.get("name", "Unknown"), expanded=False, icon="🔧"):
+                    st.json(event.get("args", {}))
+
+            elif event_type == "function_response":
+                with st.expander(event.get("name", "Unknown"), expanded=False, icon="📥"):
+                    st.json(event.get("response", {}))
+
+            elif event_type == "text":
+                st.markdown(event.get("text", ""))
 
 
 def visualize_structure(structure_path, height=400, width=600):
@@ -737,18 +806,12 @@ def send_message_sse(message, attachments=None):
                 st.error(f"Error: {response.text}")
                 return False
 
-            accumulated_thought = ""
             accumulated_content = ""
-            # {id: {name, args, response}} — built up as function call/response parts arrive
-            streaming_function_calls = {}
 
             with st.chat_message("agent"):
-                # Placeholders created lazily so nothing is rendered until data arrives
-                thought_expander_holder = st.empty()
-                fc_area = st.container()
-                content_area = st.empty()
-
-                thought_area = None  # created on first thought chunk
+                # Render every incoming part against one timeline to preserve temporal order.
+                timeline = []
+                timeline_holder = st.empty()
 
                 for line in response.iter_lines(decode_unicode=True):
                     if not line or not line.startswith("data: "):
@@ -760,33 +823,37 @@ def send_message_sse(message, attachments=None):
                         event = json.loads(data_str)
                         for p in event.get("content", {}).get("parts", []):
                             if p.get("thought", False):
-                                # Lazily create the thought expander on first thought chunk
-                                if thought_area is None:
-                                    thought_area = thought_expander_holder.expander("🤔 Thinking...", expanded=False).empty()
-                                accumulated_thought += p.get("text", "")
-                                thought_area.markdown(accumulated_thought)
+                                timeline.append({"type": "thought", "text": p.get("text", "")})
+                                render_stream_timeline(timeline_holder, timeline)
 
                             elif "functionCall" in p:
                                 fc = p["functionCall"]
-                                fc_id = fc.get("id") or fc.get("name", "")
-                                streaming_function_calls.setdefault(fc_id, {"name": fc.get("name", "Unknown"), "args": fc.get("args", {})})
-                                with fc_area:
-                                    with st.expander(fc.get("name", "Unknown"), expanded=False, icon="🔧"):
-                                        st.json(fc.get("args", {}))
+                                timeline.append({
+                                    "type": "function_call",
+                                    "id": fc.get("id"),
+                                    "name": fc.get("name", "Unknown"),
+                                    "args": fc.get("args", {}),
+                                })
+                                render_stream_timeline(timeline_holder, timeline)
 
                             elif "functionResponse" in p:
                                 fr = p["functionResponse"]
-                                fr_id = fr.get("id") or fr.get("name", "")
                                 resp = fr.get("response", {})
-                                fc_entry = streaming_function_calls.get(fr_id)
-                                fc_name = fc_entry["name"] if fc_entry else fr.get("name", "Unknown")
-                                with fc_area:
-                                    with st.expander(fc_name, expanded=False, icon="📥"):
-                                        st.json(resp)
+                                timeline.append({
+                                    "type": "function_response",
+                                    "id": fr.get("id"),
+                                    "name": fr.get("name", "Unknown"),
+                                    "response": resp,
+                                })
+                                render_stream_timeline(timeline_holder, timeline)
 
                             elif "text" in p:
                                 accumulated_content += p["text"]
-                                content_area.markdown(accumulated_content)
+                                if timeline and timeline[-1].get("type") == "text":
+                                    timeline[-1]["text"] = accumulated_content
+                                else:
+                                    timeline.append({"type": "text", "text": accumulated_content})
+                                render_stream_timeline(timeline_holder, timeline)
                     except json.JSONDecodeError:
                         continue
 
@@ -801,6 +868,30 @@ def send_message_sse(message, attachments=None):
 
 # UI Components
 st.title("MatCreator")
+
+with st.sidebar:
+    st.header("User")
+    if st.session_state.user_id:
+        st.success(f"Signed in as `{st.session_state.user_id}`")
+        if st.button("Switch User", width='stretch', key="switch_user"):
+            _logout_user()
+            st.rerun()
+    else:
+        st.text_input(
+            "Username",
+            key="login_username",
+            placeholder="Enter your username",
+        )
+        if st.button("Enter System", width='stretch', key="login_user"):
+            if _login_user(st.session_state.login_username):
+                list_sessions()
+                st.rerun()
+
+    st.divider()
+
+if not st.session_state.user_id:
+    st.info("Enter your username in the sidebar to access your own conversation history.")
+    st.stop()
 
 # Sidebar - Mode selector at the top
 with st.sidebar:
@@ -1019,7 +1110,12 @@ if st.session_state.view_mode == "session":
 
         if st.session_state.selected_structure_path and os.path.exists(resolve_path(st.session_state.selected_structure_path)):
             st.subheader("Structure Viewer")
-            st.caption(f"🔬 {os.path.basename(st.session_state.selected_structure_path)}")
+            selected_path = Path(resolve_path(st.session_state.selected_structure_path))
+            try:
+                selected_label = selected_path.relative_to(WORKSPACE_ROOT)
+            except ValueError:
+                selected_label = selected_path
+            st.caption(f"🔬 `{selected_label}`")
             visualize_structure(resolve_path(st.session_state.selected_structure_path), height=280, width=400)
             if st.button("✖ Clear", key="clear_structure"):
                 st.session_state.selected_structure_path = None
@@ -1046,7 +1142,11 @@ if st.session_state.view_mode == "session":
                         indent = "\u00a0" * (depth * 4)
                         size = file_path.stat().st_size
                         size_str = f"{size} B" if size < 1024 else f"{size // 1024} KB"
-                        col1, col2 = st.columns([4, 1])
+                        if is_structure_file(file_path):
+                            col1, col2, col3 = st.columns([4, 1, 1])
+                        else:
+                            col1, col2 = st.columns([4, 1])
+                            col3 = None
                         with col1:
                             st.markdown(
                                 f"{indent}📄 `{rel}` "
@@ -1061,6 +1161,15 @@ if st.session_state.view_mode == "session":
                                     file_name=file_path.name,
                                     key=f"dl_session_{idx}_{file_path.name}",
                                 )
+                        if col3 is not None:
+                            with col3:
+                                if st.button(
+                                    "🔬",
+                                    key=f"preview_session_{idx}_{file_path.name}",
+                                    help=f"Preview structure: {rel}",
+                                ):
+                                    st.session_state.selected_structure_path = str(file_path)
+                                    st.rerun()
                 else:
                     st.info("No files yet in this session's working directory.")
             else:

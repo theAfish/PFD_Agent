@@ -1,28 +1,18 @@
-"""MatCreator agent - a single LlmAgent that handles both planning and execution.
-
-The agent dynamically loads skill context, runs tools, and manages its own
-plan/execution loop in natural conversation. No separate execution agent or
-phase state machine is needed.
-"""
-
 from __future__ import annotations
 
 import os
 import logging
-from typing import Dict, Any, List, Optional
-from pydantic import BaseModel, Field
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.function_tool import FunctionTool
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.tool_context import ToolContext
 from google.adk.agents.callback_context import CallbackContext
-from google.adk.tools.base_tool import BaseTool
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
-from .trajectory import append_trajectory_entry
 from .planning import validate_plan
+from .intent import validate_intent
+from .summarize import validate_summarize
 from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, refresh_skills
 from ...guide import ALL_GUIDES
 from .memory import update_memory, read_memory
@@ -150,6 +140,36 @@ def confirm_plan_and_start_execution(tool_context: ToolContext) -> dict:
     }
 
 
+def resume_execution(tool_context: ToolContext) -> dict:
+    """Resume execution from the current saved step index.
+
+    Call this when the user explicitly requests to continue execution after an interruption.
+    """
+    plan = tool_context.state.get("plan")
+    if not plan:
+        return {
+            "status": "error",
+            "message": "No plan found in session state. Create/validate a plan first.",
+        }
+
+    current_step_index = tool_context.state.get("current_step_index", 0)
+    if not isinstance(current_step_index, int) or current_step_index < 0:
+        current_step_index = 0
+
+    tool_context.state["return_to_planner"] = False
+    tool_context.state["return_to_planner_reason"] = None
+    tool_context.state["execution_approved"] = True
+    tool_context.state["current_step_index"] = current_step_index
+
+    return {
+        "status": "ok",
+        "message": (
+            "Execution resume approved. "
+            f"The orchestrator will continue from step index {current_step_index}."
+        ),
+    }
+
+
 def request_skill_testing(skill_or_description: str, tool_context: ToolContext) -> dict:
     """Request the tester agent to create or validate a skill.
 
@@ -169,92 +189,12 @@ def request_skill_testing(skill_or_description: str, tool_context: ToolContext) 
 
 
 # ---------------------------------------------------------------------------
-# Inline summarize_agent tool: records step outcomes into session state
-# ---------------------------------------------------------------------------
-
-_SUMMARIZE_TOOL_INSTRUCTION = """
-You summarize key outcomes and extract concrete artifacts from the most recent execution step.
-Use absolute paths for artifacts.
-
-Session state context:
-- goal: {goal}
-- plan: {plan}
-
-Output ONLY a JSON object — no markdown fences, no extra text:
-{{
-  "key_results": "<concise summary of what was produced or learned>",
-  "artifacts": ["<absolute path or ID of important generated files>"],
-  "concise_summary": "<user-facing one-paragraph summary>"
-}}
-"""
-
-_summarize_tool_agent = LlmAgent(
-    name="summarize_agent",
-    model=LiteLlm(
-        model=_model_name,
-        base_url=_model_base_url,
-        api_key=_model_api_key,
-    ),
-    description=(
-        "Records the outcome of a completed execution step: key results, artifact paths, "
-        "and a concise user-facing summary. Call after each significant step."
-    ),
-    instruction=_SUMMARIZE_TOOL_INSTRUCTION,
-    disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True,
-)
-# ---------------------------------------------------------------------------
-# Intent tool
-# ---------------------------------------------------------------------------
-class USERINTENT(BaseModel):
-    """Classification of workflow type based on user intent."""
-    goal: str = Field(
-        ...,
-        description="Single-sentence articulation of the user's goal/intent",
-        max_length=300,
-    )
-    reasoning: str = Field(
-        ...,
-        description="Brief explanation of why you think this way",
-        #max_length=300,
-    )
-
-_INTENT_INSTRUCTION = """
-You are an agent that determines the user's goal.
-
-## Task
-- Infer the user's goal as one concise sentence using correct domain terminology.
-- Provide short reasoning explaining why you interpreted the goal that way.
-
-Output ONLY a JSON object — no markdown fences, no extra text:
-{
-  "goal": "<single-sentence statement of the user's goal>",
-  "reasoning": "<brief explanation of why you interpreted it this way>"
-}
-"""
-
-intent_tool_agent = LlmAgent(
-    name="user_intent",
-    model=LiteLlm(
-        model=_model_name,
-        base_url=_model_base_url,
-        api_key=_model_api_key,
-    ),
-    description="Determine user's goal.",
-    instruction=_INTENT_INSTRUCTION,
-    output_schema=USERINTENT,
-    disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True,
-)
-
-
-# ---------------------------------------------------------------------------
 # Instruction
 # ---------------------------------------------------------------------------
 
 _MATCREATOR_INSTRUCTION = """
 You are MatCreator, an AI assistant for computational materials science workflows.
-Your role here is **planning only** — a dedicated execution agent handles the actual steps.
+Your role here is **PLANNING ONLY** — a dedicated execution agent handles the actual steps.
 
 ## Context
 - Available skills: {skills}
@@ -264,15 +204,14 @@ Your role here is **planning only** — a dedicated execution agent handles the 
 - Summarize: {summarize}
 
 ## Default workflow
-1. Understand the user's goal with `user_intent`. Call `read_memory` to recall past context.
-2. If the user's goal matches one of the Available guides, call `load_guide` to inject its workflow instructions before planning.
-3. Draft a clear execution plan yourself, then call `validate_plan` to validate and commit it. Show the plan to the user.
+1. Determine the user's goal, then call `validate_intent` with your interpretation. Call `read_memory` to recall past context.
+2. If the user's goal matches one of the Available guides, call `load_guide` before planning.
+3. Always draft a execution plan, then call `validate_plan` to validate and commit it. Show the plan to the user.
 {confirmation_instruction}
 5. If the user asks to create or test a skill, call `request_skill_testing(description)`.
 
 ## Rules
-- NEVER load skill context or run tools to execute plan steps — that is the execution agent's job.
-- After `confirm_plan_and_start_execution`, simply inform the user that execution is starting.
+- NEVER execute plan steps.
 - For skill creation/testing requests, always call `request_skill_testing` before responding.
 - Keep responses concise; reference absolute file paths where relevant.
 - When you encounter an error, quote the exact message and propose concrete solutions.
@@ -320,52 +259,6 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
     return None
 
 # ---------------------------------------------------------------------------
-# after_tool_callback: persist plan and summarize updates
-# ---------------------------------------------------------------------------
-
-def after_tool_callback(
-    tool: BaseTool,
-    args: Dict[str, Any],
-    tool_context: ToolContext,
-    tool_response: Dict,
-) -> Optional[Dict]:
-    """Persist summarize updates; plan is persisted directly by validate_plan."""
-    tool_name = tool.name
-
-    if tool_name == "user_intent":
-        if isinstance(tool_response, str):
-            import json as _json
-            import re as _re
-            _m = _re.search(r"\{[\s\S]*\}", tool_response)
-            try:
-                tool_response = _json.loads(_m.group(0)) if _m else {}
-            except _json.JSONDecodeError:
-                pass
-        if isinstance(tool_response, dict) and "goal" in tool_response:
-            tool_context.state["goal"] = tool_response["goal"]
-
-    elif tool_name == "summarize_agent":
-        tool_context.state["summarize"] = tool_response
-
-        # --- trajectory logging ---
-        try:
-            session_id = tool_context._invocation_context.session.id
-            step_index = (tool_context.state.get("trajectory_step") or 0) + 1
-            tool_context.state["trajectory_step"] = step_index
-            log_path = append_trajectory_entry(
-                session_id=session_id,
-                step_index=step_index,
-                goal=tool_context.state.get("goal"),
-                active_skill=tool_context.state.get("active_skill"),
-                summarize_response=tool_response,
-            )
-            logger.info("Trajectory entry %d written to %s", step_index, log_path)
-        except Exception as _exc:  # never block the main flow
-            logger.warning("Failed to write trajectory entry: %s", _exc)
-
-    return None
-
-# ---------------------------------------------------------------------------
 # MatCreator agent instance
 # ---------------------------------------------------------------------------
 
@@ -384,9 +277,10 @@ thinking_agent = LlmAgent(
     instruction=_MATCREATOR_INSTRUCTION,
     tools=[
         FunctionTool(validate_plan),
-        AgentTool(_summarize_tool_agent),
-        AgentTool(intent_tool_agent),
+        FunctionTool(validate_intent),
+        FunctionTool(validate_summarize),
         FunctionTool(confirm_plan_and_start_execution),
+        FunctionTool(resume_execution),
         FunctionTool(request_skill_testing),
         FunctionTool(load_guide),
         FunctionTool(read_memory),
@@ -401,5 +295,4 @@ thinking_agent = LlmAgent(
         ALL_SKILLS_TOOLSET
     ],
     before_agent_callback=before_agent_callback,
-    after_tool_callback=after_tool_callback,
 )
