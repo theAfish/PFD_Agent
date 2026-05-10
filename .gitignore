@@ -40,7 +40,7 @@ MANIFEST
 
 # adk package
 *.adk/
-*.json
+
 
 # Installer logs
 pip-log.txt
