@@ -2,6 +2,43 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-05-11)
+
+### Bug Fixes
+
+- Add quick start script for matcreator
+  ([`4f84de5`](https://github.com/nlz25/PFD_Agent/commit/4f84de53d92990f2677de1efce2a00701202bd6d))
+
+- Add tavily skill for web-search
+  ([`69c5101`](https://github.com/nlz25/PFD_Agent/commit/69c51018d4e3f36773b6eade7f2c67b05753174c))
+
+- Issues with repeated plan id
+  ([`5ac7ab7`](https://github.com/nlz25/PFD_Agent/commit/5ac7ab7936ce80c3e4ca327ca9384161c7779ebb))
+
+- New frontend
+  ([`7e4be39`](https://github.com/nlz25/PFD_Agent/commit/7e4be39b1c95fc9fc542a6cdb1068e944d6c68b6))
+
+- Refine mattergen and subagent
+  ([`1c24735`](https://github.com/nlz25/PFD_Agent/commit/1c24735a3f31bc01a936aae1453456c74e66af63))
+
+- UI unsafe path handling
+  ([`95ec643`](https://github.com/nlz25/PFD_Agent/commit/95ec6432452d8c0085ada6b1864dbf11ca3e24e1))
+
+- Update frontend
+  ([`0e7bea7`](https://github.com/nlz25/PFD_Agent/commit/0e7bea7439ee8afa186660f2cac4aa6b6a738ecb))
+
+- Update UI
+  ([`e395a01`](https://github.com/nlz25/PFD_Agent/commit/e395a01fe2b4495a8fc44662a08d2fd424c28c25))
+
+### Features
+
+- Add new front end
+  ([`ce93220`](https://github.com/nlz25/PFD_Agent/commit/ce932207203cc1955d24a1d3317f6f73e2fd3630))
+
+- Parallel sub-agent organization
+  ([`54b9b3d`](https://github.com/nlz25/PFD_Agent/commit/54b9b3d3cd85077d83906e142b528d099bd9c32c))
+
+
 ## v1.2.4 (2026-05-06)
 
 ### Bug Fixes
