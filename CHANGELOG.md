@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.0 (2026-05-12)
+
+### Bug Fixes
+
+- Update frontend
+  ([`7e5593a`](https://github.com/nlz25/PFD_Agent/commit/7e5593a7b74cc159530f5d77b8cc8ae8177aec51))
+
+### Features
+
+- Restructure skill system
+  ([`764160c`](https://github.com/nlz25/PFD_Agent/commit/764160c30f1e1be4f129966fa8a935ebfd026a3a))
+
+
 ## v1.3.0 (2026-05-11)
 
 ### Bug Fixes
