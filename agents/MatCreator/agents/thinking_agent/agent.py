@@ -16,7 +16,7 @@ from .summarize import validate_summarize
 from .session_summary import write_session_summary
 from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, refresh_skills
 from ...guide import ALL_GUIDES
-from .memory import query_knowledge_graph, save_to_knowledge_graph, update_memory, read_memory
+from .memory import query_knowledge_graph, save_to_knowledge_graph, update_memory, read_memory, run_synthesizer
 from ...tools.workspace_tools import (
     init_workspace_tool,
     run_bash,
@@ -207,8 +207,8 @@ Your role here is **PLANNING ONLY** — a dedicated execution agent handles the 
 ## Default workflow
 1. Determine the user's goal, then call `validate_intent` with your interpretation.
    Call `query_knowledge_graph` with the user's goal to retrieve relevant past knowledge,
-   lessons, and related skills. Only fall back to `read_memory` when a broad context dump
-   is explicitly needed.
+   lessons, and related skills. Do NOT use `read_memory` for knowledge seeking — it dumps
+   the entire memory file and should only be used when explicitly requested by the user.
 2. If the user's goal matches one of the Available guides, call `load_guide` before planning.
 3. Always draft an execution plan, then call `validate_plan` to validate and commit it. Show the plan to the user in Markdown table format.
 {confirmation_instruction}
@@ -223,6 +223,7 @@ Your role here is **PLANNING ONLY** — a dedicated execution agent handles the 
 - For skill creation/testing requests, always call `request_skill_testing` before responding.
 - Keep responses concise; reference absolute file paths where relevant.
 - When you encounter an error, quote the exact message and propose concrete solutions.
+- You may call `run_synthesizer` when the knowledge graph seems stale or after heavy knowledge accumulation.
 """
 
 # ---------------------------------------------------------------------------
@@ -294,6 +295,7 @@ thinking_agent = LlmAgent(
         FunctionTool(load_guide),
         FunctionTool(query_knowledge_graph),
         FunctionTool(save_to_knowledge_graph),
+        FunctionTool(run_synthesizer),
         FunctionTool(read_memory),
         FunctionTool(update_memory),
         FunctionTool(init_workspace_tool),

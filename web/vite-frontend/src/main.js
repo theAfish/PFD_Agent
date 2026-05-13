@@ -10,7 +10,7 @@ import "./style.css";
 const APP_NAME = "MatCreator";
 
 const state = {
-  sessionId: `session-${Math.floor(Date.now() / 1000)}`,
+  sessionId: localStorage.getItem("mat_sessionId") || `session-${Math.floor(Date.now() / 1000)}`,
   userId: localStorage.getItem("mat_userId") || "",
   activeSessionUserId: localStorage.getItem("mat_userId") || "",
   isAdmin: false,
@@ -630,6 +630,7 @@ async function applyUsername(name) {
   state.sessionId = `session-${Math.floor(Date.now() / 1000)}`;
   state.sessionReady = false;
   localStorage.setItem("mat_userId", name);
+  localStorage.setItem("mat_sessionId", state.sessionId);
   sessionIdEl.textContent = state.sessionId;
   chatArea.innerHTML = "";
   renderSessionFilesTree([]);
@@ -659,9 +660,14 @@ editUserBtn.addEventListener("click", () => showLoginModal());
 if (!state.userId) {
   showLoginModal();
 } else {
-  refreshAccess().then(() => {
+  sessionIdEl.textContent = state.sessionId;
+  refreshAccess().then(async () => {
     renderUserDisplay();
-    loadSessions();
+    await loadSessions();
+    if (localStorage.getItem("mat_sessionId")) {
+      state.sessionReady = true;
+      await loadSession(state.sessionId);
+    }
   });
 }
 
@@ -709,6 +715,7 @@ async function switchSession(sessionId, owner = state.userId) {
   state.sessionId = sessionId;
   state.activeSessionUserId = owner;
   state.sessionReady = true;
+  localStorage.setItem("mat_sessionId", sessionId);
   sessionIdEl.textContent = sessionId;
   renderSessionFilesTree([]);
   agentGraph.reset();
@@ -1129,6 +1136,77 @@ async function loadSession(sessionId) {
 }
 
 // ---------------------------------------------------------------------------
+// Streaming deduplication helpers (ported from streamlit_app.py)
+// ---------------------------------------------------------------------------
+
+function mergeReplayedText(current, incoming) {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  if (incoming.startsWith(current)) return incoming;
+  if (current.endsWith(incoming)) return current;
+  const maxOverlap = Math.min(current.length, incoming.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap--) {
+    if (current.endsWith(incoming.slice(0, overlap))) {
+      return current + incoming.slice(overlap);
+    }
+  }
+  return current + incoming;
+}
+
+function compactRepeatedPrefixSnapshots(text) {
+  if (!text) return text;
+  let compacted = text;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const maxPrefix = Math.floor(compacted.length / 2);
+    for (let size = maxPrefix; size > 3; size--) {
+      const prefix = compacted.slice(0, size);
+      const rest = compacted.slice(size);
+      if (rest.startsWith(prefix)) {
+        compacted = rest;
+        changed = true;
+        break;
+      }
+    }
+  }
+  return compacted;
+}
+
+function upsertTimelineThought(timeline, text) {
+  if (!text) return;
+  const compacted = compactRepeatedPrefixSnapshots(text);
+  const last = timeline[timeline.length - 1];
+  if (last?.type === "thought") {
+    last.text = compactRepeatedPrefixSnapshots(mergeReplayedText(last.text || "", compacted));
+    return;
+  }
+  timeline.push({ type: "thought", text: compacted });
+}
+
+function upsertTimelineText(timeline, text) {
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    if (timeline[i].type === "text") timeline.splice(i, 1);
+  }
+  if (text) timeline.push({ type: "text", text });
+}
+
+function upsertTimelineEvent(timeline, event) {
+  const { id: eventId, type: eventType } = event;
+  if (eventId) {
+    for (let i = 0; i < timeline.length; i++) {
+      if (timeline[i].type === eventType && timeline[i].id === eventId) {
+        timeline[i] = event;
+        return;
+      }
+    }
+  }
+  const last = timeline[timeline.length - 1];
+  if (last && JSON.stringify(last) === JSON.stringify(event)) return;
+  timeline.push(event);
+}
+
+// ---------------------------------------------------------------------------
 // Message sending + SSE streaming
 // ---------------------------------------------------------------------------
 
@@ -1192,10 +1270,10 @@ async function sendMessage(message) {
           const parts = evt?.content?.parts || [];
           for (const p of parts) {
             if (p.thought) {
-              timeline.push({ type: "thought", text: p.text || "" });
+              upsertTimelineThought(timeline, p.text || "");
             } else if (p.functionCall) {
               const fc = p.functionCall;
-              timeline.push({
+              upsertTimelineEvent(timeline, {
                 type: "function_call",
                 id: fc.id,
                 name: fc.name || "Unknown",
@@ -1203,20 +1281,15 @@ async function sendMessage(message) {
               });
             } else if (p.functionResponse) {
               const fr = p.functionResponse;
-              timeline.push({
+              upsertTimelineEvent(timeline, {
                 type: "function_response",
                 id: fr.id,
                 name: fr.name || "Unknown",
                 response: fr.response || {},
               });
             } else if (p.text) {
-              accText += p.text;
-              const last = timeline[timeline.length - 1];
-              if (last?.type === "text") {
-                last.text = accText;
-              } else {
-                timeline.push({ type: "text", text: accText });
-              }
+              accText = mergeReplayedText(accText, p.text);
+              upsertTimelineText(timeline, compactRepeatedPrefixSnapshots(accText));
             }
 
             if (timeline.length > 0 && !timelineContainer) {
@@ -1339,6 +1412,7 @@ resetBtn.addEventListener("click", () => {
   state.sessionId = `session-${Math.floor(Date.now() / 1000)}`;
   state.activeSessionUserId = state.userId;
   state.sessionReady = false;
+  localStorage.setItem("mat_sessionId", state.sessionId);
   sessionIdEl.textContent = state.sessionId;
   chatArea.innerHTML = "";
   renderSessionFilesTree([]);

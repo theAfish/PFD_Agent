@@ -17,6 +17,32 @@ _MEMORY_PATH = WORKSPACE_ROOT / "MEMORY.md"
 # ---------------------------------------------------------------------------
 
 from ...knowledge.query import query_knowledge_graph, save_to_knowledge_graph  # noqa: F401
+from ...knowledge.synthesizer import run_knowledge_synthesizer as _run_synthesizer
+
+
+def run_synthesizer(
+    stale_days: int = 30,
+    stale_min_refs: int = 0,
+    min_insights_for_workflow: int = 3,
+) -> dict:
+    """Prune, merge, and abstract the knowledge graph on demand.
+
+    Runs three passes: prune stale nodes, merge near-duplicates, and abstract
+    recurring patterns into Workflow nodes. Use when the knowledge graph may
+    have accumulated many redundant or stale nodes, or after a long session
+    with many saves.
+
+    Args:
+        stale_days: Delete nodes older than this many days with few references.
+        stale_min_refs: Nodes with <= this many references are stale candidates.
+        min_insights_for_workflow: Minimum Insight nodes sharing a skill/workflow
+            before a Workflow abstraction node is synthesized above them.
+    """
+    return _run_synthesizer(
+        stale_days=stale_days,
+        stale_min_refs=stale_min_refs,
+        min_insights_for_workflow=min_insights_for_workflow,
+    )
 
 
 # ---------------------------------------------------------------------------
