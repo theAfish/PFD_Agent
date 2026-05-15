@@ -1,14 +1,53 @@
-"""Shared memory utilities for reading and writing MEMORY.md.
+"""Memory utilities for the thinking agent.
 
-Import this module from any sub-agent that needs to access or update
-persistent session memory stored in skills/MEMORY.md.
+Exposes knowledge-graph-based tools (preferred) and legacy MEMORY.md helpers
+(kept for backward compatibility and manual use).
 """
 
 from __future__ import annotations
 
 import os
 from ...workspace import WORKSPACE_ROOT
+
 _MEMORY_PATH = WORKSPACE_ROOT / "MEMORY.md"
+
+
+# ---------------------------------------------------------------------------
+# Knowledge graph tools (preferred)
+# ---------------------------------------------------------------------------
+
+from ...knowledge.query import query_knowledge_graph, save_to_knowledge_graph  # noqa: F401
+from ...knowledge.synthesizer import run_knowledge_synthesizer as _run_synthesizer
+
+
+def run_synthesizer(
+    stale_days: int = 30,
+    stale_min_refs: int = 0,
+    min_insights_for_workflow: int = 3,
+) -> dict:
+    """Prune, merge, and abstract the knowledge graph on demand.
+
+    Runs three passes: prune stale nodes, merge near-duplicates, and abstract
+    recurring patterns into Workflow nodes. Use when the knowledge graph may
+    have accumulated many redundant or stale nodes, or after a long session
+    with many saves.
+
+    Args:
+        stale_days: Delete nodes older than this many days with few references.
+        stale_min_refs: Nodes with <= this many references are stale candidates.
+        min_insights_for_workflow: Minimum Insight nodes sharing a skill/workflow
+            before a Workflow abstraction node is synthesized above them.
+    """
+    return _run_synthesizer(
+        stale_days=stale_days,
+        stale_min_refs=stale_min_refs,
+        min_insights_for_workflow=min_insights_for_workflow,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Legacy MEMORY.md helpers (backward-compatible)
+# ---------------------------------------------------------------------------
 
 def load_memory() -> str:
     """Return the full contents of MEMORY.md, or an empty string if missing."""
@@ -26,29 +65,21 @@ def write_memory(content: str) -> str:
         f.write(content)
     return f"Memory appended successfully at {_MEMORY_PATH}"
 
+
 def update_memory(new_entries: str) -> str:
     """Append new_entries to MEMORY.md.
 
-    Args:
-        new_entries: The new Markdown-formatted entries to append.
-            Include a blank line before each new entry. 
-            Example: "- Always check available datasets and evaluate existing pre-trained models before launching full MLFF workflows."
-
-    Returns:
-        Confirmation message.
+    Prefer save_to_knowledge_graph for new knowledge. This function is kept
+    for manual/legacy use.
     """
     return write_memory("\n" + new_entries)
 
 
 def read_memory() -> str:
-    """Read the full contents of MEMORY.md and return them.
+    """Read the full contents of MEMORY.md.
 
-    Call this at the start of a new task or before planning to recall past
-    lessons, known workflows, and project-specific context accumulated across
-    sessions.
-
-    Returns:
-        The full text of MEMORY.md, or a message indicating it is empty.
+    Prefer query_knowledge_graph for targeted retrieval. This function loads
+    the entire file and should be used only when a broad context dump is needed.
     """
     content = load_memory()
     if not content.strip():

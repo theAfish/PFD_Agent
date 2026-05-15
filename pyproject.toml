@@ -16,6 +16,7 @@ dependencies = [
     "scipy>=1.16.2",
     "python-dotenv",
     "sqlalchemy",
+    "networkx>=3.0",
     "streamlit>=1.32.0",
     "requests>=2.31.0",
     "py3dmol>=2.0.0",
@@ -24,7 +25,7 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["setuptools>=65.5.0", "wheel"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
