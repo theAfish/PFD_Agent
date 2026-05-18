@@ -34,7 +34,7 @@ class PlanStep(BaseModel):
     )
     action: str = Field(
         ...,
-        description="Clear, concise description of what this step does (1-2 sentences)",
+        description="Clear, concise description of what this step does (1-2 sentences). Each step should cover a meaningful chunk of work — avoid splitting a single logical operation into multiple steps.",
         max_length=500,
     )
 

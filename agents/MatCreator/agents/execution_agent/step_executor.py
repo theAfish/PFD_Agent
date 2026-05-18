@@ -88,6 +88,12 @@ Do NOT write JSON text — always use the `submit_step_result` tool.
 - Use `run_python` or `run_bash` for computation. Do not fabricate outputs.
 - Include ALL generated files with their absolute paths in `artifacts`.
 - Do not retry indefinitely on failure — call `submit_step_result` with needs_replanning.
+- **Long-running background jobs (e.g., dpdisp via tmux):** You MUST poll until the
+  background process exits AND the expected output files exist locally before calling
+  `submit_step_result`. Submitting a job is NOT the same as completing it. Poll with
+  `run_bash` every 30–60 seconds (e.g., check `tmux has-session`). Only report success
+  after outputs are downloaded. If the process exits but outputs are missing, attempt
+  recovery before reporting needs_replanning.
 
 ## Prior context
 If `prior_context` is provided, use it to understand what prior steps produced
