@@ -81,7 +81,7 @@ def validate_plan(plan: dict, tool_context: ToolContext) -> dict:
     you can fix and retry.
 
     Args:
-        plan: Dict with 'steps' (list of {step_number, skill, action}) and
+        plan: Dict with 'steps' (list of {step_number, suggested_skills, action}) and
               'additional_notes' (str).
     """
     try:
