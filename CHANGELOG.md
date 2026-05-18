@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.1 (2026-05-18)
+
+### Bug Fixes
+
+- Update README
+  ([`1f04ed4`](https://github.com/nlz25/PFD_Agent/commit/1f04ed47ea2dd7d3fda82d2bdcaeebfee222503f))
+
+
 ## v1.5.0 (2026-05-15)
 
 ### Bug Fixes
