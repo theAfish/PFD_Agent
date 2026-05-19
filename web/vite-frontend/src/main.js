@@ -9,6 +9,8 @@ import "./style.css";
 
 const APP_NAME = "MatCreator";
 
+const BENCH_MODE_KEY = "mat_benchMode";
+
 const state = {
   sessionId: localStorage.getItem("mat_sessionId") || `session-${Math.floor(Date.now() / 1000)}`,
   userId: localStorage.getItem("mat_userId") || "",
@@ -19,6 +21,7 @@ const state = {
   currentUploads: [],
   isSending: false,
   sendController: null,
+  benchMode: localStorage.getItem(BENCH_MODE_KEY) === "1",
 };
 
 // ---------------------------------------------------------------------------
@@ -50,6 +53,8 @@ const loginInput = document.getElementById("login-input");
 const loginSubmit = document.getElementById("login-submit");
 const userDisplay = document.getElementById("user-display");
 const editUserBtn = document.getElementById("edit-user");
+const benchToggle = document.getElementById("bench-mode-toggle");
+const benchChip = document.getElementById("bench-mode-chip");
 
 function autoResizeTextInput() {
   if (!textInput) return;
@@ -1364,7 +1369,7 @@ async function createSession() {
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify(state.benchMode ? { benchmark_mode: true } : {}),
     });
     if (!resp.ok) {
       console.error(`Failed to create session: HTTP ${resp.status}`, await resp.text());
@@ -1374,6 +1379,21 @@ async function createSession() {
     await loadSessions();
   } catch (err) {
     console.error("Failed to create session:", err);
+  }
+}
+
+async function patchSessionBenchMode(enabled) {
+  if (!state.sessionReady || !state.sessionId) return;
+  const url = `/apps/${APP_NAME}/users/${encodeURIComponent(state.userId)}/sessions/${encodeURIComponent(state.sessionId)}`;
+  try {
+    const resp = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state_delta: { benchmark_mode: enabled } }),
+    });
+    if (!resp.ok) console.error(`Failed to patch session bench mode: HTTP ${resp.status}`);
+  } catch (err) {
+    console.error("Failed to patch session bench mode:", err);
   }
 }
 
@@ -1808,6 +1828,18 @@ if (avatarUploadBtn && avatarUploadInput) {
 
 Array.from(document.querySelectorAll("[data-quick]"))
   .forEach((btn) => btn.addEventListener("click", () => sendMessage(btn.dataset.quick || "")));
+
+// Bench mode toggle
+if (benchToggle) {
+  benchToggle.checked = state.benchMode;
+  if (benchChip) benchChip.classList.toggle("hidden", !state.benchMode);
+  benchToggle.addEventListener("change", () => {
+    state.benchMode = benchToggle.checked;
+    localStorage.setItem(BENCH_MODE_KEY, benchToggle.checked ? "1" : "0");
+    if (benchChip) benchChip.classList.toggle("hidden", !benchToggle.checked);
+    patchSessionBenchMode(benchToggle.checked);
+  });
+}
 
 resetBtn.addEventListener("click", () => {
   state.sessionId = `session-${Math.floor(Date.now() / 1000)}`;
