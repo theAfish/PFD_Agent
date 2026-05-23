@@ -10,7 +10,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.adk.agents.callback_context import CallbackContext
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
-from .planning import validate_plan
+from .planning import validate_plan, validate_graph
 from .intent import validate_intent
 from .summarize import validate_summarize
 from .session_summary import write_session_summary
@@ -132,46 +132,57 @@ def confirm_plan_and_start_execution(tool_context: ToolContext) -> dict:
 
     Call this when the user explicitly confirms they want to proceed with the plan
     (e.g. "yes", "proceed", "go ahead").  The orchestrator will then delegate each
-    plan step to the execution agent — do NOT execute steps yourself after calling this.
+    graph node to the execution agent — do NOT execute nodes yourself after calling this.
     """
     from ..cancellation import clear_cancellation
 
     sid = tool_context.state.get("session_id") or tool_context._invocation_context.session.id
     clear_cancellation(sid)
+
+    # Reset all node statuses so a fresh run starts clean
+    graph = tool_context.state.get("execution_graph")
+    if graph and isinstance(graph.get("nodes"), dict):
+        for node in graph["nodes"].values():
+            node["status"] = "pending"
+            node["result"] = None
+        tool_context.state["execution_graph"] = graph
+
     tool_context.state["execution_approved"] = True
-    tool_context.state["current_step_index"] = 0
+    tool_context.state["_node_exec_counter"] = 0
     return {
         "status": "ok",
-        "message": "Execution approved. The orchestrator will now run each step via the execution agent.",
+        "message": "Execution approved. The orchestrator will now run the graph nodes via the execution agent.",
     }
 
 
 def resume_execution(tool_context: ToolContext) -> dict:
-    """Resume execution from the current saved step index.
+    """Resume execution from the current graph state.
 
     Call this when the user explicitly requests to continue execution after an interruption.
     """
-    plan = tool_context.state.get("plan")
-    if not plan:
+    graph = tool_context.state.get("execution_graph")
+    if not graph or not graph.get("nodes"):
         return {
             "status": "error",
-            "message": "No plan found in session state. Create/validate a plan first.",
+            "message": "No execution_graph found in session state. Create/validate a graph first.",
         }
 
-    current_step_index = tool_context.state.get("current_step_index", 0)
-    if not isinstance(current_step_index, int) or current_step_index < 0:
-        current_step_index = 0
+    pending = [nid for nid, n in graph["nodes"].items() if n.get("status") == "pending"]
+    if not pending:
+        return {
+            "status": "error",
+            "message": "No pending nodes remain — all nodes are complete or blocked.",
+        }
 
     tool_context.state["return_to_planner"] = False
     tool_context.state["return_to_planner_reason"] = None
     tool_context.state["execution_approved"] = True
-    tool_context.state["current_step_index"] = current_step_index
 
     return {
         "status": "ok",
         "message": (
-            "Execution resume approved. "
-            f"The orchestrator will continue from step index {current_step_index}."
+            f"Execution resume approved. "
+            f"The orchestrator will continue with {len(pending)} pending node(s)."
         ),
     }
 
@@ -205,7 +216,7 @@ Your role here is **PLANNING ONLY**: you are responsible only for planning; all 
 ## Context
 - Available guides: {guides}
 - Goal: {goal}
-- Plan: {plan}
+- Execution graph: {execution_graph}
 - Summarize: {summarize}
 
 ## Default workflow
@@ -214,30 +225,58 @@ Your role here is **PLANNING ONLY**: you are responsible only for planning; all 
    lessons, and related skills. Do NOT use `read_memory` for knowledge seeking — it dumps
    the entire memory file and should only be used when explicitly requested by the user.
 2. If the user's goal matches one of the Available guides, call `load_guide` before planning.
-3. Always draft an execution plan, then call `validate_plan` to validate and commit it. Show the plan to the user in Markdown table format.
+3. Always draft an execution graph, then call `validate_graph` to validate and commit it.
+   Present the plan to the user as a Markdown table with columns:
+   **Node ID | Label | Action | Depends On**
+   (where "Depends On" lists predecessor node IDs, or "—" for root nodes).
 {confirmation_instruction}
 5. If the user asks to create or test a skill, call `request_skill_testing(description)`.
-6. After completing a step, use `save_to_knowledge_graph` to persist key lessons or findings.
+6. After completing a node, use `save_to_knowledge_graph` to persist key lessons or findings.
 7. Once execution has fully completed and results are available, call `write_session_summary`
    with the global narrative: original goal, approach rationale, key decisions, lessons
    learned, any failed attempts, and the overall outcome.
 
+## DAG Planning Guidelines
+- **Node IDs**: use descriptive snake_case prefixed with `step_`, e.g. `step_download_data`.
+- **Edges**: `[predecessor_id, successor_id]` — predecessor must complete before successor starts.
+  Independent nodes (no shared data, no ordering constraint) need no edge and will execute in parallel.
+- **Keep graphs small**: 2–4 nodes for simple tasks, 5–7 for complex ones.
+  Merge operations that belong to the same skill or logical unit into a single node.
+- **validate_graph input shape**:
+  ```json
+  {{
+    "nodes": {{
+      "step_download_data": {{
+        "node_id": "step_download_data",
+        "label": "Download Data",
+        "action": "Download VASP output files from the remote server.",
+        "suggested_skills": ["filesystem"]
+      }},
+      "step_relax": {{
+        "node_id": "step_relax",
+        "label": "Relax Geometry",
+        "action": "Run VASP geometry relaxation in the workspace.",
+        "suggested_skills": ["vasp"]
+      }}
+    }},
+    "edges": [["step_download_data", "step_relax"]],
+    "additional_notes": "Requires VASP 6.x."
+  }}
+  ```
+
 ## Rules
-- NEVER execute plan steps.
-- **Keep plans short.** Prefer 2–4 steps for simple tasks, 5–7 for complex ones. Merge
-  sequential operations that belong to the same skill or logical unit into a single step.
-  Only split when steps are genuinely independent or require different skills.
+- NEVER execute plan nodes.
 - For skill creation/testing requests, always call `request_skill_testing` before responding.
 - Keep responses concise; reference absolute file paths where relevant.
 - When you encounter an error, quote the exact message and propose concrete solutions.
 - You may call `run_synthesizer` when the knowledge graph seems stale or after heavy knowledge accumulation.
 
 ## Reviewing execution history
-- After execution returns to planning (e.g. after cancellation, step failure, or partial
-  completion), call `read_execution_trajectory` to review completed step outcomes and artifacts.
-- Call `read_agent_graph(node_type_filter="step")` to inspect step statuses and tool calls —
-  especially useful for diagnosing a stuck or failed step.
-- Use this information when replanning: avoid re-running steps that already succeeded.
+- After execution returns to planning (e.g. after cancellation, node failure, or partial
+  completion), call `read_execution_trajectory` to review completed node outcomes and artifacts.
+- Call `read_agent_graph(node_type_filter="step")` to inspect node statuses and tool calls —
+  especially useful for diagnosing a stuck or failed node.
+- Use this information when replanning: avoid re-running nodes that already succeeded.
 """
 
 # ---------------------------------------------------------------------------
@@ -248,7 +287,7 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
     """Refresh memory, skills, and guides in session state each invocation."""
     state = callback_context._invocation_context.session.state
     for key, default in [
-        ("plan", None),
+        ("execution_graph", None),
         ("goal", None),
         ("skills", None),
         ("guides", None),
@@ -271,12 +310,12 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
     if state.get("benchmark_mode", False):
         callback_context.state["confirmation_instruction"] = (
             "4. **Benchmark mode is active.** Immediately call `confirm_plan_and_start_execution` "
-            "after `validate_plan` succeeds — do NOT wait for user confirmation."
+            "after `validate_graph` succeeds — do NOT wait for user confirmation."
         )
     else:
         callback_context.state["confirmation_instruction"] = (
             '4. **Wait for explicit user confirmation** (e.g. "yes", "ok", "proceed") before proceeding.\n'
-            "   When the user confirms, call `confirm_plan_and_start_execution` — do NOT execute steps yourself."
+            "   When the user confirms, call `confirm_plan_and_start_execution` — do NOT execute nodes yourself."
         )
 
     return None
@@ -299,7 +338,8 @@ thinking_agent = LlmAgent(
     ),
     instruction=_MATCREATOR_INSTRUCTION,
     tools=[
-        FunctionTool(validate_plan),
+        FunctionTool(validate_graph),
+        FunctionTool(validate_plan),   # kept for backward compatibility
         FunctionTool(validate_intent),
         FunctionTool(validate_summarize),
         FunctionTool(write_session_summary),
@@ -321,7 +361,8 @@ thinking_agent = LlmAgent(
         show_artifact,
         show_plot,
         show_structure,
-        ALL_SKILLS_TOOLSET,
+        #*[t for t in ALL_SKILLS_TOOLSET._tools if t.name != "load_skill"],
+        ALL_SKILLS_TOOLSET
     ],
     before_agent_callback=before_agent_callback,
 )
