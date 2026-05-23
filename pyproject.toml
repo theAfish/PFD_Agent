@@ -7,12 +7,12 @@ requires-python = ">=3.12"
 dependencies = [
     "ase>=3.26.0",
     "fastmcp>=2.12.3",
-    "google-adk>=1.1.1",
+    "google-adk>=1.28.0",
+    "google-cloud-storage",
     "lbg>=1.2.29",
     "litellm>=1.77.4",
     "periodictable>=2.0.2",
     "pyyaml>=6.0.2",
-    "bohr-agent-sdk",
     "scipy>=1.16.2",
     "python-dotenv",
     "sqlalchemy",
@@ -23,7 +23,8 @@ dependencies = [
     "py3dmol>=2.0.0",
     "a2a-sdk==0.3.25",
     "tavily-cli",
-    "pymatgen-analysis-diffusion"
+    "pymatgen-analysis-diffusion",
+    "mp-api"
 ]
 
 [build-system]

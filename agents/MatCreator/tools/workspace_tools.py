@@ -236,11 +236,10 @@ def run_bash(script: str, tool_context: ToolContext) -> str:
         result = subprocess.run(
             ["bash", "-c", script],
             capture_output=True,
-            text=True,
             timeout=_EXEC_TIMEOUT,
             cwd=cwd,
         )
-        output = result.stdout + result.stderr
+        output = result.stdout.decode("utf-8", errors="replace") + result.stderr.decode("utf-8", errors="replace")
     except subprocess.TimeoutExpired as exc:
         partial_out = (exc.output or b"").decode(errors="replace") if isinstance(exc.output, bytes) else (exc.output or "")
         partial_err = (exc.stderr or b"").decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
@@ -294,7 +293,10 @@ def run_skill_script(
     Args:
         skill_name: Name of the skill that owns the script (e.g. ``"deepmd"``).
         script_name: Filename inside the skill's ``scripts/`` directory
-            (e.g. ``"deepmd_prepare.py"``).
+            (e.g. ``"deepmd_prepare.py"`` or ``"run_job.sh"``).
+            The interpreter is chosen automatically from the file extension
+            (``.py`` → python, ``.sh``/``.bash`` → bash, ``.js`` → node).
+            Executable files with a shebang are run directly.
         args: Command-line arguments to pass to the script as a single string
             (e.g. ``"prepare-training --workdir ./train --train_data data.xyz"``).
 
@@ -325,7 +327,14 @@ def run_skill_script(
         env = dict(os.environ)
         env["MATCLAW_SESSION_DIR"] = cwd
 
-    cmd = f"python {script_path} {args}"
+    _ext_map = {".py": "python", ".sh": "bash", ".bash": "bash", ".js": "node"}
+    ext = script_path.suffix.lower()
+    if ext in _ext_map:
+        cmd = f"{_ext_map[ext]} {script_path} {args}"
+    elif os.access(script_path, os.X_OK):
+        cmd = f"{script_path} {args}"
+    else:
+        cmd = f"bash {script_path} {args}"
     try:
         result = subprocess.run(
             ["bash", "-c", cmd],

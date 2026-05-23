@@ -482,7 +482,22 @@ class AgentGraphView {
       this._detailTiming.textContent = "—";
     }
 
-    // Artifacts
+    // Stop-step button (only for running step nodes)
+    const actionsRow = document.getElementById("detail-actions-row");
+    const stopStepBtn = document.getElementById("detail-stop-step-btn");
+    const stepNumber = raw.input && raw.input.step_number;
+    if (raw.type === "step" && raw.status === "running" && stepNumber) {
+      stopStepBtn.disabled = false;
+      stopStepBtn.textContent = "Stop step";
+      stopStepBtn.onclick = () => {
+        fetch(`/api/sessions/${state.sessionId}/cancel-step/${stepNumber}`, { method: "POST" }).catch(() => {});
+        stopStepBtn.disabled = true;
+        stopStepBtn.textContent = "Stopping…";
+      };
+      actionsRow.style.display = "";
+    } else {
+      actionsRow.style.display = "none";
+    }
     this._detailArtifacts.innerHTML = "";
     const arts = raw.artifacts || [];
     if (arts.length) {

@@ -69,16 +69,8 @@ You are a focused step executor. Execute the single plan step provided in your i
 ## Your task
 1. Review `suggested_skills` from your input. Call `load_skill` for each skill you deem
    relevant to the action. You may also load additional skills.
-2. Decide whether to execute directly or decompose:
-   - **Execute directly** if the action is atomic (single tool call or single well-defined operation).
-   - **Decompose** by calling `run_sub_steps` if the action requires multiple distinct phases
-     or sequential decisions..
-   - **Depth limit**: if `recursion_depth` in your context is already at the maximum,
-     `run_sub_steps` will refuse — execute directly or submit needs_replanning.
-3. If you called `run_sub_steps`, inspect the returned `sub_results` list. Each entry
-   contains the result of one sub-step. Aggregate their `key_results` and `artifacts`
-   then call `submit_step_result` with the combined outcome.
-
+2. Decompose task into sub-tasks. Directly execute them (**simple** cases) or **Delegate** them to child executors by calling `run_sub_agent` tool (**complex** cases).
+       
 ## Reporting results (REQUIRED)
 When done, call `submit_step_result` with:
 - `status`: "success" or "needs_replanning"
@@ -88,46 +80,48 @@ When done, call `submit_step_result` with:
 - `replan_reason`: why replanning is needed (only when status=needs_replanning, else omit)
 
 If `submit_step_result` returns a validation error, fix the fields and call it again.
-Do NOT write JSON text — always use the `submit_step_result` tool.
 
 ## Execution rules
 - Work inside `workspace_dir` for all file operations.
 - Use `run_python` or `run_bash` for computation. Do not fabricate outputs.
 - Include ALL generated files with their absolute paths in `artifacts`.
 - Do not retry indefinitely on failure — call `submit_step_result` with needs_replanning.
-- **Long-running background jobs (e.g., dpdisp via tmux):** You MUST poll until the
-  background process exits AND the expected output files exist locally before calling
-  `submit_step_result`. Submitting a job is NOT the same as completing it. Poll with
-  `run_bash` every 30–60 seconds (e.g., check `tmux has-session`). Only report success
-  after outputs are downloaded. If the process exits but outputs are missing, attempt
-  recovery before reporting needs_replanning.
-
-## Prior context
-If `prior_context` is provided, use it to understand what prior steps produced
-and avoid repeating completed work.
 """
 
 
-async def run_sub_steps(
-    sub_steps: List[dict],
+async def run_sub_agent(
+    step_number: int,
+    action: str,
+    suggested_skills: List[str],
     tool_context: ToolContext,
+    prior_context: Optional[str] = None,
 ) -> dict:
-    """Decompose this step into sub-steps and spawn child step executors.
+    """Spawn a child step executor to handle a sub-task.
 
-    Call this when the current action requires multiple distinct phases or
-    sequential decisions. Sub-steps run concurrently when independent.
-    After this returns, inspect `sub_results` and aggregate them into
-    a single `submit_step_result` call.
+    Call once per sub-task. For truly independent sub-tasks, issue multiple
+    `run_sub_agent` calls in a SINGLE response turn — the runtime executes them
+    concurrently. For dependent sub-tasks, call sequentially and pass the returned
+    result as `prior_context` to the next call.
+
+    Returns a result dict with keys: status, key_results, concise_summary, artifacts.
+    If status is "cancelled", call submit_step_result with needs_replanning immediately.
 
     Args:
-        sub_steps: List of sub-step dicts, each containing:
-            - action (str, required): what to do
-            - suggested_skills (list[str], optional): skills to load
-            - prior_context (str, optional): context from earlier sub-steps
+        step_number: Sub-task index (1-based, unique within this step)
+        action: What the sub-task should do
+        suggested_skills: Skills to preload in the child executor
+        prior_context: Summary of earlier sub-tasks' results (for sequential chains)
     """
-    from .step_executor_runner import _run_sub_steps_impl  # lazy import avoids circular dep
+    from .step_executor_runner import run_step_executor  # lazy import avoids circular dep
 
-    return await _run_sub_steps_impl(sub_steps, tool_context=tool_context)
+    return await run_step_executor(
+        step_number=step_number,
+        action=action,
+        suggested_skills=suggested_skills,
+        workspace_dir="",  # computed internally by run_step_executor
+        prior_context=prior_context,
+        tool_context=tool_context,
+    )
 
 
 def submit_step_result(
@@ -184,7 +178,7 @@ step_executor_agent = LlmAgent(
     instruction=_STEP_EXECUTOR_INSTRUCTION,
     input_schema=StepExecutorInput,
     tools=[
-        FunctionTool(run_sub_steps),
+        FunctionTool(run_sub_agent),
         FunctionTool(submit_step_result),
         FunctionTool(run_python),
         FunctionTool(run_bash),
