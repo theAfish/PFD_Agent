@@ -62,12 +62,12 @@ body {
 }
 .ghost:hover { border-color: var(--accent); color: var(--accent); }
 
-/* ── 3-Column grid ──────────────────────────────────────── */
+/* ── Flex column layout ─────────────────────────────────── */
 .app-grid {
-  display: grid;
-  grid-template-columns: minmax(320px, 1.5fr) minmax(0, 3fr) minmax(320px, 1fr);
-  gap: 16px;
-  align-items: start;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0;
 }
 
 .card {
@@ -89,7 +89,8 @@ body {
   gap: 12px;
   align-items: stretch;
   height: calc(100vh - 140px);
-  width: 100%;
+  width: 360px;
+  flex: 0 0 auto;
   overflow-y: auto;
 }
 
@@ -181,6 +182,63 @@ body {
   box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.2);
 }
 
+/* ── Column resizers (vertical drag handles) ────────────── */
+.col-resizer {
+  width: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: ew-resize;
+  position: relative;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.col-resizer::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 36px;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.55);
+}
+.col-resizer:hover,
+.col-resizer:focus-visible,
+.col-resizer.resizing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.2);
+  outline: none;
+}
+.col-resizer.hidden { display: none; }
+
+/* ── File explorer 4th column ───────────────────────────── */
+.file-explorer-col {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 140px);
+  overflow: hidden;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius);
+}
+.file-explorer-col.is-open {
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.4);
+}
+.file-explorer-header {
+  padding: 18px 20px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.file-explorer-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+.files-col-toggle.is-active { border-color: var(--accent); color: var(--accent); }
+
 .detail-section {
   font-size: 13px;
   margin-top: 2px;
@@ -228,7 +286,7 @@ body {
 }
 
 /* ── Chat panel ─────────────────────────────────────────── */
-.chat-card { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 640px; }
+.chat-card { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 640px; flex: 1 1 0; min-width: 280px; }
 
 .chat-area { flex: 1; padding: 16px 20px 12px; overflow-y: auto; }
 .chat-area::-webkit-scrollbar { width: 10px; }
@@ -368,7 +426,7 @@ body {
 .stop-step-btn:disabled { opacity: 0.5; cursor: progress; }
 
 /* ── Side panel ─────────────────────────────────────────── */
-.side-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.side-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px; width: 300px; flex: 0 0 auto; }
 .panel-block { border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: rgba(255, 255, 255, 0.02); }
 .block-header { font-weight: 700; color: #cbd5ff; letter-spacing: 0.2px; }
 .panel-block > summary.block-header {
@@ -733,14 +791,16 @@ details summary:hover { color: var(--text); }
 }
 
 /* ── Responsive ─────────────────────────────────────────── */
-@media (max-width: 1200px) {
-  .app-grid { grid-template-columns: 1fr 2.5fr 1.1fr; }
-}
 @media (max-width: 900px) {
-  .app-grid { grid-template-columns: 1fr; }
-  .graph-column { overflow-y: visible; }
+  .app-grid { flex-direction: column; }
+  .graph-column, .side-panel, .file-explorer-col {
+    width: 100% !important; flex: 0 0 auto;
+  }
+  .chat-card { flex: 0 0 auto; width: 100%; height: 480px; min-width: unset; }
+  .graph-column { overflow-y: visible; height: auto; }
+  .file-explorer-col { height: auto; overflow: visible; }
+  .panel-resizer, .col-resizer { display: none !important; }
   .graph-card, .chat-card { height: 480px; }
-  .panel-resizer { display: none !important; }
   .graph-detail { height: auto !important; max-height: 240px; }
   .structure-viewer { height: 280px !important; }
   .graph-viewport {

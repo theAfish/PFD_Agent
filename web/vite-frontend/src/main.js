@@ -72,6 +72,13 @@ const benchToggle = null; // removed — replaced by mode-selector
 const benchChip = null;  // removed — replaced by agent-mode-chip
 const modeSelector = document.getElementById("mode-selector");
 const agentModeChip = document.getElementById("agent-mode-chip");
+const graphColumn       = document.getElementById("graph-column");
+const sidePanel         = document.getElementById("side-panel");
+const fileExplorerCol   = document.getElementById("file-explorer-col");
+const colResizerGraph   = document.getElementById("col-resizer-graph");
+const colResizerSide    = document.getElementById("col-resizer-side");
+const colResizerFiles   = document.getElementById("col-resizer-files");
+const filesColToggleBtn = document.getElementById("files-col-toggle");
 
 function autoResizeTextInput() {
   if (!textInput) return;
@@ -120,6 +127,17 @@ const PANEL_HEIGHT_BOUNDS = {
   "graph-viewport": { min: 220, max: 1200 },
   "graph-detail": { min: 110, max: 600 },
   "structure-viewer": { min: 140, max: 900 },
+};
+
+const COL_WIDTH_DEFAULTS = {
+  "graph-column": 360,
+  "side-panel": 300,
+  "file-explorer-col": 260,
+};
+const COL_WIDTH_BOUNDS = {
+  "graph-column":      { min: 240, max: 600 },
+  "side-panel":        { min: 200, max: 500 },
+  "file-explorer-col": { min: 160, max: 500 },
 };
 
 class AgentGraphView {
@@ -968,6 +986,135 @@ function initPanelResizer(handleEl, targetEl) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Column (horizontal) resizing — mirrors the panel (vertical) resizer pattern
+// ---------------------------------------------------------------------------
+
+function colStorageKey(colId) {
+  return `mat_col_width_${state.userId || "anon"}_${colId}`;
+}
+function filesColOpenKey() {
+  return `mat_files_col_open_${state.userId || "anon"}`;
+}
+function isFilesColOpen() {
+  return localStorage.getItem(filesColOpenKey()) === "true";
+}
+function setFilesColOpen(open) {
+  localStorage.setItem(filesColOpenKey(), String(open));
+}
+function getColWidth(colEl) {
+  return Math.round(colEl.getBoundingClientRect().width);
+}
+function applyColWidth(colEl, widthPx) {
+  const bounds = COL_WIDTH_BOUNDS[colEl.id];
+  if (!bounds) return;
+  colEl.style.width = `${clamp(widthPx, bounds.min, bounds.max)}px`;
+}
+function persistColWidth(colEl) {
+  localStorage.setItem(colStorageKey(colEl.id), String(getColWidth(colEl)));
+}
+function applyStoredColWidths() {
+  for (const colId of ["graph-column", "side-panel"]) {
+    const el = document.getElementById(colId);
+    if (!el) continue;
+    if (isMobileLayout()) { el.style.removeProperty("width"); continue; }
+    const raw = localStorage.getItem(colStorageKey(colId));
+    const w = raw ? Number(raw) : COL_WIDTH_DEFAULTS[colId];
+    applyColWidth(el, Number.isFinite(w) ? w : COL_WIDTH_DEFAULTS[colId]);
+  }
+}
+function applyFilesColState(open) {
+  if (!fileExplorerCol) return;
+  if (isMobileLayout()) {
+    fileExplorerCol.style.removeProperty("width");
+    fileExplorerCol.classList.remove("is-open");
+    colResizerFiles?.classList.add("hidden");
+    filesColToggleBtn?.classList.remove("is-active");
+    return;
+  }
+  if (open) {
+    fileExplorerCol.classList.add("is-open");
+    const raw = localStorage.getItem(colStorageKey("file-explorer-col"));
+    const w = raw ? Number(raw) : COL_WIDTH_DEFAULTS["file-explorer-col"];
+    applyColWidth(fileExplorerCol, w);
+    colResizerFiles?.classList.remove("hidden");
+    filesColToggleBtn?.classList.add("is-active");
+  } else {
+    fileExplorerCol.classList.remove("is-open");
+    fileExplorerCol.style.width = "0";
+    colResizerFiles?.classList.add("hidden");
+    filesColToggleBtn?.classList.remove("is-active");
+  }
+}
+function toggleFilesCol() {
+  const willOpen = !isFilesColOpen();
+  setFilesColOpen(willOpen);
+  applyFilesColState(willOpen);
+  if (willOpen) refreshSessionFiles();
+}
+function syncColResizerVisibility() {
+  const mobile = isMobileLayout();
+  colResizerGraph?.classList.toggle("hidden", mobile);
+  colResizerSide?.classList.toggle("hidden", mobile);
+  colResizerFiles?.classList.toggle("hidden", mobile || !isFilesColOpen());
+}
+
+/**
+ * initColResizer — horizontal mirror of initPanelResizer.
+ * direction: +1 = drag-right widens targetEl (left col), -1 = drag-right narrows it (right col).
+ */
+function initColResizer(handleEl, targetEl, direction = 1) {
+  if (!handleEl || !targetEl) return;
+  const keyStep = 16;
+  const commit = () => {
+    persistColWidth(targetEl);
+    refreshGraphAndStructureLayout();
+  };
+  handleEl.addEventListener("pointerdown", (e) => {
+    if (isMobileLayout() || handleEl.classList.contains("hidden")) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = getColWidth(targetEl);
+    handleEl.classList.add("resizing");
+    handleEl.setPointerCapture(e.pointerId);
+    const onMove = (moveEvt) => {
+      applyColWidth(targetEl, startWidth + direction * (moveEvt.clientX - startX));
+      refreshGraphAndStructureLayout();
+    };
+    const onUp = () => {
+      handleEl.classList.remove("resizing");
+      handleEl.removeEventListener("pointermove", onMove);
+      handleEl.removeEventListener("pointerup", onUp);
+      handleEl.removeEventListener("pointercancel", onUp);
+      commit();
+    };
+    handleEl.addEventListener("pointermove", onMove);
+    handleEl.addEventListener("pointerup", onUp);
+    handleEl.addEventListener("pointercancel", onUp);
+  });
+  handleEl.addEventListener("keydown", (e) => {
+    if (isMobileLayout() || handleEl.classList.contains("hidden")) return;
+    if (e.key === "ArrowLeft")  { e.preventDefault(); applyColWidth(targetEl, getColWidth(targetEl) + direction * -keyStep); commit(); }
+    if (e.key === "ArrowRight") { e.preventDefault(); applyColWidth(targetEl, getColWidth(targetEl) + direction *  keyStep); commit(); }
+  });
+}
+
+function initColResizers() {
+  applyStoredColWidths();
+  applyFilesColState(isFilesColOpen());
+  syncColResizerVisibility();
+  initColResizer(colResizerGraph, graphColumn, 1);
+  initColResizer(colResizerSide, sidePanel, -1);
+  initColResizer(colResizerFiles, fileExplorerCol, -1);
+  filesColToggleBtn?.addEventListener("click", toggleFilesCol);
+  MOBILE_LAYOUT_QUERY.addEventListener("change", () => {
+    applyStoredColWidths();
+    applyFilesColState(isFilesColOpen());
+    syncColResizerVisibility();
+    refreshGraphAndStructureLayout();
+  });
+}
+
 function initPanelResizers() {
   applyStoredPanelHeights();
   initPanelResizer(graphResizer, graphViewport);
@@ -1083,6 +1230,9 @@ function _applySession(result) {
   renderUserDisplay();
   hideLoginModal();
   applyStoredPanelHeights();
+  applyStoredColWidths();
+  applyFilesColState(isFilesColOpen());
+  syncColResizerVisibility();
   loadSessions();
 }
 
@@ -2203,6 +2353,7 @@ svClose.addEventListener("click", () => {
 });
 
 initPanelResizers();
+initColResizers();
 
 // ---------------------------------------------------------------------------
 // Event listeners

@@ -28,13 +28,19 @@
           <span class="chip agent-mode-chip hidden" id="agent-mode-chip"></span>
           <button class="ghost" id="reset-session">New Session</button>
           <button class="ghost" id="settings-btn" title="Settings">⚙</button>
+          <button class="ghost files-col-toggle" id="files-col-toggle" title="Toggle session files panel" style="padding:0 10px;font-size:13px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7a2 2 0 0 1 2-2h3.17a2 2 0 0 1 1.42.59l.82.82A2 2 0 0 0 11.83 7H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            </svg>
+          </button>
         </div>
       </header>
 
       <main class="app-grid">
 
         <!-- Left: Agent execution graph + node detail -->
-        <div class="graph-column">
+        <div class="graph-column" id="graph-column">
           <section class="card graph-card">
             <div class="card-header">
               <div>
@@ -130,6 +136,10 @@
           ></div>
         </div>
 
+        <div class="col-resizer" id="col-resizer-graph" tabindex="0"
+             role="separator" aria-orientation="vertical"
+             aria-label="Resize agent graph column width"></div>
+
         <!-- Centre: Chat -->
         <section class="card chat-card">
           <div class="card-header">
@@ -182,8 +192,12 @@
           </div>
         </section>
 
+        <div class="col-resizer" id="col-resizer-side" tabindex="0"
+             role="separator" aria-orientation="vertical"
+             aria-label="Resize side panel width"></div>
+
         <!-- Right: Controls + Sessions + Artifacts -->
-        <aside class="card side-panel">
+        <aside class="card side-panel" id="side-panel">
           <div class="panel-block">
             <div class="block-header">Workflow Controls</div>
             <div class="actions">
@@ -211,17 +225,25 @@
               </ul>
             </div>
           </details>
+        </aside>
 
-          <details class="panel-block" open>
-            <summary class="block-header">Session Files
-              <button class="ghost" id="refresh-files" style="font-size:11px" title="Refresh files">↺</button>
-            </summary>
-            <div class="panel-block-body session-files-body">
-              <ul class="artifact-list" id="session-files-tree">
-                <li class="empty">No files yet</li>
-              </ul>
+        <div class="col-resizer hidden" id="col-resizer-files" tabindex="0"
+             role="separator" aria-orientation="vertical"
+             aria-label="Resize file explorer width"></div>
+
+        <aside class="card file-explorer-col" id="file-explorer-col">
+          <div class="file-explorer-header">
+            <div>
+              <div class="eyebrow">Files</div>
+              <h2>Session Files</h2>
             </div>
-          </details>
+            <button class="ghost" id="refresh-files" style="font-size:11px" title="Refresh files">↺</button>
+          </div>
+          <div class="file-explorer-body">
+            <ul class="artifact-list" id="session-files-tree">
+              <li class="empty">No files yet</li>
+            </ul>
+          </div>
         </aside>
 
       </main>
