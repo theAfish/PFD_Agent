@@ -200,6 +200,9 @@ def _available_upload_path(upload_dir: Path, filename: str) -> Path:
     raise HTTPException(status_code=409, detail="Too many files with the same name")
 
 
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok"}
 @app.on_event("startup")
 async def _on_startup() -> None:
     users_db.init_db()
