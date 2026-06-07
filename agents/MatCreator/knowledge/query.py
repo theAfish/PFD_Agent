@@ -431,11 +431,14 @@ def search_skills(query: str, top_k: int = 5) -> str:
     Returns:
         Markdown list of matching skill names and descriptions, ranked by relevance.
     """
+    from ..config import get_disabled_skills
     kg = _get_skill_kg()
     try:
         node_ids = _find_seeds(kg, query, top_k=top_k, category="skill")
         if not node_ids:
             return f"No skills found for '{query}'."
+
+        disabled = set(get_disabled_skills())
 
         for nid in node_ids:
             kg.increment_reference(nid)
@@ -443,7 +446,7 @@ def search_skills(query: str, top_k: int = 5) -> str:
         lines = []
         for nid in node_ids:
             node = kg.get_node(nid)
-            if not node:
+            if not node or node.name in disabled:
                 continue
             line = f"- **{node.name}**"
             if node.description:

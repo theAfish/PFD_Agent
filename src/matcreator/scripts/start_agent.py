@@ -215,7 +215,7 @@ async def run_agent_async(
     session = await runner.session_service.create_session(
         app_name=app.name,
         user_id="user",
-        state={"agent_mode": "flash" if flash else "normal"},
+        state={"agent_mode": "flash" if flash else "bench"},
         session_id=session_id,
     )
 
