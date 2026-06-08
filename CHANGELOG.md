@@ -2,6 +2,34 @@
 
 <!-- version list -->
 
+## v1.9.0 (2026-06-08)
+
+### Bug Fixes
+
+- Add new vasp and bohr skill
+  ([`f50bca8`](https://github.com/nlz25/PFD_Agent/commit/f50bca89c648123a4196e3ed6edf4058dd8a5156))
+
+- Disabled skills now behave properly
+  ([`9947bf5`](https://github.com/nlz25/PFD_Agent/commit/9947bf54cf1923bc621cc896c05473b496407f0a))
+
+- Improve CLI mode
+  ([`7aadad0`](https://github.com/nlz25/PFD_Agent/commit/7aadad02cae65650ee72a3fe0b2420a98a78a15b))
+
+- Minor issue
+  ([`01e9da1`](https://github.com/nlz25/PFD_Agent/commit/01e9da14aeb5133af9c435c1c4b324c84d8aa866))
+
+- Update legacy VASP skill
+  ([`3ff1047`](https://github.com/nlz25/PFD_Agent/commit/3ff1047f901d9ace4a8c88fcaeaf986a9afd511e))
+
+- Update vasp-pymatgen skill
+  ([`885d4bc`](https://github.com/nlz25/PFD_Agent/commit/885d4bc7acea626a5654569468be3f6132e514c9))
+
+### Features
+
+- Add custom skill management
+  ([`6c33ad0`](https://github.com/nlz25/PFD_Agent/commit/6c33ad0e26a30e5b37eae837aefe699c57672537))
+
+
 ## v1.8.0 (2026-06-04)
 
 ### Bug Fixes
