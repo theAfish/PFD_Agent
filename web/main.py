@@ -247,9 +247,7 @@ async def auth_login(body: LoginBody) -> JSONResponse:
     user = users_db.get_by_display_name(name)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found. Please register first.")
-    if user["password_hash"] is None:
-        raise HTTPException(status_code=401, detail="Account has no password. Please re-register.")
-    if not users_db.verify_password(user["password_hash"], body.password):
+    if user["password_hash"] is not None and not users_db.verify_password(user["password_hash"], body.password):
         raise HTTPException(status_code=401, detail="Invalid password.")
 
     return JSONResponse({

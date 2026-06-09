@@ -1333,6 +1333,40 @@ editUserBtn.addEventListener("click", () => showLoginModal());
 logoutBtn.addEventListener("click", () => logout());
 settingsLogoutBtn.addEventListener("click", () => logout());
 
+const savePasswordBtn = document.getElementById("settings-save-password-btn");
+const passwordMsg = document.getElementById("settings-password-msg");
+
+async function savePassword() {
+  const oldPw = document.getElementById("settings-current-password").value || null;
+  const newPw = document.getElementById("settings-new-password").value;
+  const confirmPw = document.getElementById("settings-confirm-password").value;
+  passwordMsg.style.color = "#f87171";
+  if (!newPw) { passwordMsg.textContent = "New password cannot be empty."; return; }
+  if (newPw !== confirmPw) { passwordMsg.textContent = "Passwords do not match."; return; }
+  try {
+    const res = await fetch("/api/auth/set-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: state.userId, old_password: oldPw, new_password: newPw }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      passwordMsg.textContent = data.detail || "Failed to update password.";
+      return;
+    }
+    passwordMsg.style.color = "#4ade80";
+    passwordMsg.textContent = "Password updated.";
+    document.getElementById("settings-current-password").value = "";
+    document.getElementById("settings-new-password").value = "";
+    document.getElementById("settings-confirm-password").value = "";
+    setTimeout(() => { passwordMsg.textContent = ""; }, 3000);
+  } catch (e) {
+    passwordMsg.textContent = "Network error.";
+  }
+}
+
+savePasswordBtn.addEventListener("click", savePassword);
+
 // On load: detect legacy localStorage (display name instead of UUID) and migrate,
 // or proceed normally if already a valid identity.
 (async () => {
