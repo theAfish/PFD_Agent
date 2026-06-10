@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.11.0 (2026-06-10)
+
+### Bug Fixes
+
+- **lammps**: Address review comments — move submission to references, use bohrium skill
+  ([`1b07f7a`](https://github.com/nlz25/PFD_Agent/commit/1b07f7a027507560a46f8dd6bd9bfe866ec6b4f2))
+
+### Features
+
+- **session**: Add session delete feature
+  ([`9f762ac`](https://github.com/nlz25/PFD_Agent/commit/9f762acff25df94c5c08ce811801cc541e81b6d9))
+
+
 ## v1.10.0 (2026-06-09)
 
 ### Bug Fixes
