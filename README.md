@@ -105,10 +105,15 @@ An example content of `.env`:
 ```env
 LLM_MODEL= "MODEL_TYPE"
 GRAPH_AGENT_MODEL="MODEL_TYPE"             # optional; defaults to LLM_MODEL
+REVIEW_AGENT_MODEL="MODEL_TYPE"            # optional; defaults to GRAPH_AGENT_MODEL
 LLM_API_KEY="API_KEYS"
 LLM_BASE_URL="BASE_URL"
 KDG_DB_PATH="agents/MatCreator/.adk/know_do_graph.db"
-EMBEDDING_MODEL="EMBEDDING_MODEL_TYPE"        
+EMBEDDING_MODEL="EMBEDDING_MODEL_TYPE"
+MATCREATOR_AUTO_REVIEW=1
+MATCREATOR_REVIEW_TRIGGER_THRESHOLD=20
+MATCREATOR_REVIEW_BATCH_SIZE=5
+MATCREATOR_REVIEW_STRATEGY=auto             # auto, seed, or global
 
 # SKILL_RELATED_ENV
 CGCNN_ROOT=user/cgcnn                         # CGCNN project directory

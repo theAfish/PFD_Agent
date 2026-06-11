@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
-from know_do_graph import Entry, EntryType, KnowDoGraph
+from know_do_graph import (
+    Entry,
+    EntryType,
+    KnowDoGraph,
+)
 
 from .kdg_memory import (
     add_memory,
@@ -14,10 +19,52 @@ from .kdg_memory import (
     migrate_legacy_memory_json,
     migrate_legacy_graphs,
 )
+from .review import (
+    normalize_review_model,
+    review_policy,
+    review_threshold,
+)
 
 logger = logging.getLogger(__name__)
 _graph: Optional[KnowDoGraph] = None
 _migration_result: dict[str, int] | None = None
+
+
+def _configure_auto_review(graph: KnowDoGraph) -> None:
+    """Attach KDG's policy-controlled durable-node review scheduler."""
+    enabled = os.environ.get("MATCREATOR_AUTO_REVIEW", "1").strip().lower()
+    if enabled in {"0", "false", "no", "off"}:
+        return
+
+    from ..constants import GRAPH_AGENT_MODEL, LLM_API_KEY, LLM_BASE_URL
+
+    threshold = review_threshold()
+    model = normalize_review_model(
+        os.environ.get("REVIEW_AGENT_MODEL")
+        or os.environ.get("GRAPH_AGENT_MODEL", GRAPH_AGENT_MODEL)
+    )
+    api_key = (
+        os.environ.get("LLM_API_KEY")
+        or LLM_API_KEY
+        or os.environ.get("MINIMAX_API_KEY", "")
+    )
+    base_url = (
+        os.environ.get("LLM_BASE_URL")
+        or LLM_BASE_URL
+        or os.environ.get("MINIMAX_API_BASE")
+        or None
+    )
+    batch_size = int(os.environ.get("MATCREATOR_REVIEW_BATCH_SIZE", "5"))
+    graph.auto_review(
+        threshold=threshold,
+        policy=review_policy(),
+        strategy=os.environ.get("MATCREATOR_REVIEW_STRATEGY", "auto"),
+        include_existing=True,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        batch_size=batch_size,
+    )
 
 
 def _get_kg() -> KnowDoGraph:
@@ -47,6 +94,7 @@ def _get_kg() -> KnowDoGraph:
             "memory_entries": memories + legacy["memory_entries"],
             "edges": unified["edges"] + legacy["edges"],
         }
+        _configure_auto_review(_graph)
     return _graph
 
 

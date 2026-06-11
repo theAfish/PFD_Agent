@@ -63,6 +63,7 @@ from agents.MatCreator.skill import ALL_SKILLS, PLANNING_SKILL_NAMES, refresh_sk
 from agents.MatCreator.config import load_config, save_config, get_disabled_skills  # noqa: E402
 from agents.MatCreator.constants import GRAPH_AGENT_MODEL  # noqa: E402
 from agents.MatCreator.knowledge.query import _get_kg  # noqa: E402
+from agents.MatCreator.knowledge.review import run_review_pipeline  # noqa: E402
 
 app = FastAPI(title="MatCreator Graph API", version="1.0.0")
 APP_NAME = "MatCreator"
@@ -282,19 +283,19 @@ async def _run_knowledge_review(session_id: str) -> None:
 
         def run_review() -> dict:
             graph = _get_kg()
-            review = graph.chat(
-                agent="reviewer",
+            result = run_review_pipeline(
+                graph,
                 model=model,
                 api_key=api_key,
                 base_url=base_url,
                 batch_size=20,
-                on_status=lambda status: _set_knowledge_review_state(
+                strategy=os.environ.get("MATCREATOR_REVIEW_STRATEGY", "auto"),
+                on_status=lambda phase, status: _set_knowledge_review_state(
                     **status,
+                    phase=phase,
                     trigger_session_id=session_id,
                 ),
             )
-            result = review.review_memory()
-            graph.refresh()
             return result
 
         result = await asyncio.to_thread(run_review)

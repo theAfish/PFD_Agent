@@ -1999,6 +1999,7 @@ function renderKnowledgeReviewStatus(review) {
   const status = review?.status || "idle";
   const running = status === "running";
   const progress = review?.progress || {};
+  const phase = review?.phase || "memory";
   const completed = progress.completed || 0;
   const total = progress.total || 0;
   const results = Array.isArray(review?.results) ? review.results : [];
@@ -2008,27 +2009,27 @@ function renderKnowledgeReviewStatus(review) {
     knowledgeReviewBanner.className = `knowledge-review-banner status-${status}`;
     const detail = review?.summary || errors[0];
     knowledgeReviewBanner.title = detail
-      ? `${detail}${running ? "" : " Click to start memory review."}`
+      ? `${detail}${running ? "" : " Click to review memory and graph nodes."}`
       : running
-        ? "Memory review is running"
-        : "Click to start memory review";
+        ? "Knowledge review is running"
+        : "Click to review memory and graph nodes";
   }
   knowledgeReviewSpinner?.classList.toggle("hidden", !running);
   if (knowledgeReviewText) {
     if (running) {
+      const phaseLabel = phase === "graph" ? "graph nodes" : "memory";
       knowledgeReviewText.textContent = total
-        ? `Reviewing Know-Do Graph memory: ${completed}/${total} (${progress.percent || 0}%)`
-        : "Starting Know-Do Graph memory review";
+        ? `Reviewing ${phaseLabel}: ${completed}/${total} (${progress.percent || 0}%)`
+        : `Starting ${phaseLabel} review`;
     } else if (status === "failed") {
       knowledgeReviewText.textContent = `Review failed: ${errors[0] || "unknown error"} · click to retry`;
     } else if (status === "completed" || status === "completed_with_errors") {
-      const promoted = results.filter((item) => item.action === "promoted").length;
-      const linked = results.filter((item) => item.action === "linked").length;
-      const deleted = results.filter((item) => item.action === "deleted").length;
+      const memoryCount = results.filter((item) => item.phase === "memory").length;
+      const graphCount = results.filter((item) => item.phase === "graph").length;
       const warning = errors.length ? `, ${errors.length} errors` : "";
-      knowledgeReviewText.textContent = `Review complete: ${completed}/${total}, ${promoted} promoted, ${linked} linked, ${deleted} deleted${warning} · click to run again`;
+      knowledgeReviewText.textContent = `Review complete: ${memoryCount} memory, ${graphCount} graph actions${warning} · click to run again`;
     } else {
-      knowledgeReviewText.textContent = "Review memory · click to start";
+      knowledgeReviewText.textContent = "Review memory and graph · click to start";
     }
   }
   if (!running && knowledgeReviewPoll) {
@@ -2054,7 +2055,8 @@ async function refreshKnowledgeReviewStatus() {
 async function startKnowledgeReview() {
   renderKnowledgeReviewStatus({
     status: "running",
-    message: "Starting Know-Do Graph memory review.",
+    phase: "memory",
+    message: "Starting Know-Do Graph review.",
   });
   try {
     const resp = await fetch("/api/knowledge-review/start", {
