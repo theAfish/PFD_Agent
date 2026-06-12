@@ -21,7 +21,7 @@ After running any sub-command the ``--workdir`` directory contains:
 
   input.json                  Training configuration consumed by ``dp --pt train``
   train_data/                 deepmd/npy training split
-  valid_data/                 deepmd/npy validation split (when split_ratio > 0)
+  test_data/                  deepmd/npy test split (for dp test evaluation)
   <model>                     Copy of the DPA4 pretrained model file
 
 Execution (remote on Bohrium)
@@ -365,14 +365,28 @@ def cmd_prepare_finetune(args) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
 
     atoms = _load_atoms([Path(p) for p in args.train_data])
-    train_atoms, valid_atoms = _split(
-        atoms, args.split_ratio, not args.no_shuffle, args.seed
-    )
+
+    # Split into train / test based on max_train_frames
+    max_train = args.max_train_frames
+    if max_train > 0 and len(atoms) > max_train:
+        indices = list(range(len(atoms)))
+        if not args.no_shuffle:
+            random.Random(args.seed).shuffle(indices)
+        train_idx = sorted(indices[:max_train])
+        test_idx = sorted(indices[max_train:])
+        train_atoms = [atoms[i] for i in train_idx]
+        test_atoms = [atoms[i] for i in test_idx]
+        logger.info("Split → %d train / %d test (max_train_frames=%d)",
+                     len(train_atoms), len(test_atoms), max_train)
+    else:
+        train_atoms = atoms
+        test_atoms = None
+        logger.info("No train/test split (all %d frames for training)", len(atoms))
 
     train_paths = _export(train_atoms, workdir / "train_data", args.mixed_type)
-    valid_paths = (
-        _export(valid_atoms, workdir / "valid_data", args.mixed_type)
-        if valid_atoms else None
+    test_paths = (
+        _export(test_atoms, workdir / "test_data", args.mixed_type)
+        if test_atoms else None
     )
 
     cfg = _randomise_seeds(_DPA4_TEMPLATES[version])
@@ -380,7 +394,8 @@ def cmd_prepare_finetune(args) -> None:
     _apply_lr(cfg, args)
     _apply_loss(cfg, args)
     cfg["model"]["type_map"] = args.type_map if args.type_map else ALL_TYPES
-    _set_data(cfg, train_paths, valid_paths, workdir)
+    # Use train for training, test for validation during training
+    _set_data(cfg, train_paths, test_paths, workdir)
 
     model_dest = _place_model(Path(args.base_model), workdir, args.copy_model)
 
@@ -390,13 +405,13 @@ def cmd_prepare_finetune(args) -> None:
         f"dp --pt train input.json --skip-neighbor-stat "
         f"--finetune {model_dest.name} > train_log 2>&1"
     )
-    exec_cmd += (
-        f" && dp --pt freeze -c model.ckpt.pt -o frozen"
-        f" && dp --pt test -m frozen.pt2 -s test -d result-test -l log-test"
-    )
+    exec_cmd += " && dp --pt freeze -c model.ckpt.pt -o frozen"
+    has_test = test_paths is not None
+    if has_test:
+        exec_cmd += " && dp --pt test -m frozen.pt2 -s test_data -d result-test -l log-test"
     _print_result(
         workdir, "dpa4-finetune", exec_cmd, args.numb_steps,
-        model_dest.name, version,
+        model_dest.name, version, has_test,
     )
 
 
@@ -413,7 +428,7 @@ def _write_input(workdir: Path, cfg: Dict[str, Any]) -> None:
 
 def _print_result(
     workdir: Path, mode: str, exec_cmd: str, numb_steps: int,
-    model_dir_name: str = "", version: str = "",
+    model_dir_name: str = "", version: str = "", has_test: bool = False,
 ) -> None:
     result = {
         "status": "prepared",
@@ -422,6 +437,7 @@ def _print_result(
         "input_json": str(workdir / "input.json"),
         "numb_steps": numb_steps,
         "execution_command": exec_cmd,
+        "has_test_data": has_test,
     }
     if version:
         result["version"] = version
@@ -502,12 +518,13 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--limit_pref_v", type=float, default=5.0)
     # Data split
     p.add_argument(
-        "--split_ratio", type=float, default=0.1, metavar="F",
-        help="Validation split fraction 0–1 (default: 0.1; 0 = no split)",
+        "--max_train_frames", type=int, default=0, metavar="N",
+        help="Max frames for training (default: 0 = use all). "
+             "If set and data has more frames, excess goes to test_data/.",
     )
     p.add_argument(
         "--no_shuffle", action="store_true",
-        help="Disable shuffling before train/valid split",
+        help="Disable shuffling before train/test split",
     )
     p.add_argument("--seed", type=int, default=None, metavar="N",
                    help="Random seed for reproducible data splitting")
