@@ -113,7 +113,7 @@ def confirm_plan_and_start_execution(tool_context: ToolContext) -> dict:
     tool_context.state["_node_exec_counter"] = 0
     return {
         "status": "ok",
-        "message": "Execution approved. The orchestrator will now run the graph nodes via the execution agent.",
+        "message": "Execution approved. STOP making further calls.",
     }
 
 
@@ -230,9 +230,8 @@ You are MatCreator, an AI assistant for computational materials science.
 - Goal: {goal}
 
 ## How to work
-- Call `run_flash_step` for computation, or skill execution.
-  Multiple independent calls in one response turn run concurrently.
-- Call `search_skills` / `load_skill` to discover or load a skill.
+- ALWAYS call `run_flash_step` for computation, and SKILL execution.
+- Call `search_skills` / `load_skill` to DISCOVER or LOAD a SKILL.
 - Use `query_knowledge_graph` to retrieve relevant past knowledge.
 - After completing work, call `save_to_knowledge_graph` to persist key findings.
 
@@ -254,16 +253,13 @@ Your role here is **PLANNING ONLY**: you are responsible only for planning; all 
 ## Default workflow
 1. Determine the user's goal, then call `validate_intent` with your interpretation.
    Call `query_knowledge_graph` with the user's goal to retrieve relevant past knowledge and lessons.
-   Call `search_skills` with the user's goal to discover relevant skills and guides.
-   Use `get_related_skills` to discover its dependencies or closely related workflows.
-2. Always draft an execution graph, then call `validate_graph` to validate and commit it.
+   Call `search_skills` to discover relevant skills and guides. Use `get_related_skills` to discover its dependencies.
+2. ALWAYS draft an execution graph, then call `validate_graph` to validate and commit it.
    Present the plan to the user as a Markdown table with columns:
    **Node ID | Label | Action | Depends On**
    (where "Depends On" lists predecessor node IDs, or "—" for root nodes).
 {confirmation_instruction}
-4. If the user asks to create or test a skill, call `request_skill_testing(description)`.
-5. After completing a node, use `save_to_knowledge_graph` to persist key lessons or findings.
-6. Once execution has fully completed, call `write_session_summary` with the global narrative.
+4. Once execution has fully completed, call `write_session_summary` with the global narrative. Use `save_to_knowledge_graph` to persist key lessons or findings.
 
 ## DAG Planning Guidelines
 - **Node IDs**: use descriptive snake_case prefixed with `step_`, e.g. `step_download_data`.
