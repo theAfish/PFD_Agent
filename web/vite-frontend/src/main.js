@@ -1372,26 +1372,57 @@ async function savePassword() {
 
 savePasswordBtn.addEventListener("click", savePassword);
 
-// On load: detect legacy localStorage (display name instead of UUID) and migrate,
-// or proceed normally if already a valid identity.
+// On load: in local mode auto-login as "user"; in server mode show login modal.
 (async () => {
+  let serverMode = "local";
+  try {
+    const healthResp = await fetch("/api/health");
+    if (healthResp.ok) {
+      const health = await healthResp.json();
+      serverMode = health.mode || "local";
+    }
+  } catch (_) { /* server not up yet — assume local */ }
+
   const storedId = localStorage.getItem("mat_userId") || "";
-  if (!storedId) {
+
+  if (serverMode === "local") {
+    // Auto-login as the legacy "user" identity — no password required.
+    if (!storedId || storedId === "user") {
+      try {
+        const resp = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: "user" }),
+        });
+        if (resp.ok) {
+          const result = await resp.json();
+          _applySession(result);
+          localStorage.setItem("mat_userId", result.user_id);
+          localStorage.setItem("mat_displayName", result.display_name);
+        }
+      } catch (_) { /* ignore */ }
+    }
+    // Hide auth UI elements that are irrelevant in local mode.
+    if (editUserBtn) editUserBtn.style.display = "none";
+    if (logoutBtn) logoutBtn.style.display = "none";
+    if (settingsLogoutBtn) settingsLogoutBtn.style.display = "none";
+  } else if (!storedId) {
     showLoginModal();
+    return;
   } else if (!_isValidIdentity(storedId)) {
     // Legacy: localStorage contains a raw display name (non-"user"). Show login modal.
     showLoginModal();
-  } else {
-    sessionIdEl.textContent = state.sessionId;
-    await refreshAccess();
-    renderUserDisplay();
-    await loadSessions();
-    if (localStorage.getItem("mat_sessionId")) {
-      state.sessionReady = true;
-      await loadSession(state.sessionId);
-      agentGraph.startPolling(state.sessionId);
-      planGraph.startPolling(state.sessionId);
-    }
+    return;
+  }
+
+  sessionIdEl.textContent = state.sessionId;
+  await refreshAccess();
+  renderUserDisplay();
+  await loadSessions();
+  if (localStorage.getItem("mat_sessionId")) {
+    await loadSession(state.sessionId);
+    agentGraph.startPolling(state.sessionId);
+    planGraph.startPolling(state.sessionId);
   }
 })();
 
@@ -2195,7 +2226,11 @@ async function loadSession(sessionId) {
       `/api/users/${encodeURIComponent(owner)}/sessions/${encodeURIComponent(sessionId)}`,
       { headers: { "Content-Type": "application/json" } }
     );
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      state.sessionReady = false;
+      return;
+    }
+    state.sessionReady = true;
     const sessionData = await resp.json();
     const events = sessionData.events || [];
     let shownPlotPaths = new Set();
@@ -2413,6 +2448,10 @@ async function sendMessage(message) {
   autoResizeTextInput();
 
   if (!state.sessionReady) await createSession();
+  if (!state.sessionReady) {
+    addMessage("agent", "Failed to create session — the backend may still be loading. Please try again in a moment.");
+    return;
+  }
   agentGraph.reset();
   planGraph.reset();
   agentGraph.startPolling(state.sessionId);

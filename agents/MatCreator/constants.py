@@ -8,7 +8,42 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 _script_dir = Path(__file__).parent.resolve()
-load_dotenv(_script_dir / ".env", override=True)
+
+# Priority: explicit env vars (highest) > config.yaml > .env (lowest)
+# Capture what was set before we load any file.
+_pre_env = frozenset(os.environ.keys())
+
+# Load .env without overriding existing env vars (lowest priority).
+load_dotenv(_script_dir / ".env", override=False)
+
+# Apply config.yaml values — override .env values but not vars that were
+# already present in the environment before this module was imported.
+from .config import get_llm_config, get_bohrium_config, get_compute_config  # noqa: E402
+
+_llm_cfg = get_llm_config()
+_bohrium_cfg = get_bohrium_config()
+_compute_cfg = get_compute_config()
+
+_yaml_to_env: dict[str, str | None] = {
+    "LLM_MODEL":            _llm_cfg.get("model"),
+    "LLM_API_KEY":          _llm_cfg.get("api_key"),
+    "LLM_BASE_URL":         _llm_cfg.get("base_url"),
+    "EMBEDDING_MODEL":      _llm_cfg.get("embedding_model"),
+    "GRAPH_AGENT_MODEL":    _llm_cfg.get("graph_agent_model"),
+    "REVIEW_AGENT_MODEL":   _llm_cfg.get("review_agent_model"),
+    "BOHRIUM_USERNAME":     _bohrium_cfg.get("email"),
+    "BOHRIUM_PASSWORD":     _bohrium_cfg.get("password"),
+    "BOHRIUM_PROJECT_ID":   str(_bohrium_cfg["project_id"]) if _bohrium_cfg.get("project_id") else None,
+    "BOHRIUM_VASP_IMAGE":   _compute_cfg.get("vasp_image"),
+    "BOHRIUM_VASP_MACHINE": _compute_cfg.get("vasp_machine"),
+    "BOHRIUM_DEEPMD_IMAGE": _compute_cfg.get("deepmd_image"),
+    "BOHRIUM_DEEPMD_MACHINE": _compute_cfg.get("deepmd_machine"),
+    "DEEPMD_MODEL_PATH":    _compute_cfg.get("deepmd_model_path"),
+}
+
+for _env_key, _yaml_val in _yaml_to_env.items():
+    if _yaml_val and _env_key not in _pre_env:
+        os.environ[_env_key] = _yaml_val
 
 LLM_MODEL: str = os.environ.get("LLM_MODEL", "")
 GRAPH_AGENT_MODEL: str = os.environ.get("GRAPH_AGENT_MODEL", LLM_MODEL)

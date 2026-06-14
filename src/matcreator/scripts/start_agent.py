@@ -477,5 +477,85 @@ def knowledge_distill(min_evidence, stale_days, workspace):
     click.echo(result["message"])
 
 
+# ---------------------------------------------------------------------------
+# `matcreator config` subcommand group
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_CONFIG_KEYS = frozenset({"llm.api_key", "bohrium.password"})
+
+
+def _mask(key: str, value: str) -> str:
+    return "***" if key in _SENSITIVE_CONFIG_KEYS and value else value
+
+
+@main.group("config")
+def config_group():
+    """Read and write ~/.matcreator/config.yaml settings."""
+
+
+@config_group.command("set")
+@click.argument("assignment", metavar="KEY=VALUE")
+def config_set(assignment: str):
+    """Set a config value.
+
+    KEY uses dotted notation: section.field (e.g. llm.api_key, bohrium.email).
+    """
+    if "=" not in assignment:
+        raise click.UsageError("Expected KEY=VALUE format (e.g. llm.api_key=sk-xxx)")
+    key, _, value = assignment.partition("=")
+    key = key.strip()
+    value = value.strip()
+    if not key:
+        raise click.UsageError("Key must not be empty.")
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.config import set_config_value
+    set_config_value(key, value)
+    display = _mask(key, value)
+    click.echo(f"Set {key} = {display}")
+
+
+@config_group.command("get")
+@click.argument("key")
+@click.option("--reveal", is_flag=True, default=False, help="Show secret values in plain text.")
+def config_get(key: str, reveal: bool):
+    """Print the value of KEY from ~/.matcreator/config.yaml."""
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.config import get_config_value
+    value = get_config_value(key)
+    display = value if reveal else _mask(key, value)
+    if display:
+        click.echo(display)
+    else:
+        click.echo(f"(not set)", err=True)
+        raise SystemExit(1)
+
+
+@config_group.command("show")
+@click.option("--reveal-secrets", is_flag=True, default=False,
+              help="Show API keys and passwords in plain text.")
+def config_show(reveal_secrets: bool):
+    """Print all settings from ~/.matcreator/config.yaml."""
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.config import load_config, SENSITIVE_YAML_KEYS
+    cfg = load_config()
+    if not cfg:
+        click.echo("No config file found at ~/.matcreator/config.yaml")
+        return
+
+    def _mask_cfg(section: str, key: str, value: object) -> object:
+        dotted = f"{section}.{key}"
+        if not reveal_secrets and dotted in SENSITIVE_YAML_KEYS and value:
+            return "***"
+        return value
+
+    for section, content in cfg.items():
+        if isinstance(content, dict):
+            click.echo(f"{section}:")
+            for k, v in content.items():
+                click.echo(f"  {k}: {_mask_cfg(section, k, v)}")
+        else:
+            click.echo(f"{section}: {content}")
+
+
 if __name__ == "__main__":
     main()
