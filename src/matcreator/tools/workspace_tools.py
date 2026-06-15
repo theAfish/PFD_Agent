@@ -15,8 +15,8 @@ Security contract
 
 from __future__ import annotations
 
+import asyncio
 import os
-import subprocess
 import textwrap
 from pathlib import Path
 
@@ -192,7 +192,7 @@ def create_skill(
 _EXEC_TIMEOUT = 3600  # seconds
 
 
-def run_python(code: str, tool_context: ToolContext) -> str:
+async def run_python(code: str, tool_context: ToolContext) -> str:
     """Execute a Python code snippet and return its stdout/stderr.
 
     IMPORTANT: Only call this tool after the user has explicitly approved the
@@ -204,25 +204,35 @@ def run_python(code: str, tool_context: ToolContext) -> str:
     Returns:
         Combined stdout and stderr output, truncated to 4 000 characters.
     """
-    cwd = tool_context.state.get("workspace_dir")
+    cwd = tool_context.state.get("workspace_dir") or tool_context.state.get("workdir")
     if not cwd:
         session_id = tool_context.state.get("session_id")
         if session_id:
             cwd = str(get_session_workdir(session_id))
-    result = subprocess.run(
-        ["python", "-c", code],
-        capture_output=True,
-        text=True,
-        timeout=_EXEC_TIMEOUT,
+    proc = await asyncio.create_subprocess_exec(
+        "python", "-c", code,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
         cwd=cwd,
     )
-    output = result.stdout + result.stderr
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXEC_TIMEOUT)
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        output = f"[TimeoutExpired after {_EXEC_TIMEOUT}s]\n" + stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.communicate()
+        raise
+    else:
+        output = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
     if len(output) > 4000:
         output = output[:4000] + "\n... [truncated]"
     return output or "(no output)"
 
 
-def run_bash(script: str, tool_context: ToolContext) -> str:
+async def run_bash(script: str, tool_context: ToolContext) -> str:
     """Execute a bash script snippet and return its stdout/stderr.
 
     IMPORTANT: Only call this tool after the user has explicitly approved the
@@ -234,29 +244,35 @@ def run_bash(script: str, tool_context: ToolContext) -> str:
     Returns:
         Combined stdout and stderr output, truncated to 4 000 characters.
     """
-    cwd = tool_context.state.get("workspace_dir")
+    cwd = tool_context.state.get("workspace_dir") or tool_context.state.get("workdir")
     if not cwd:
         session_id = tool_context.state.get("session_id")
         if session_id:
             cwd = str(get_session_workdir(session_id))
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "-c", script,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+    )
     try:
-        result = subprocess.run(
-            ["bash", "-c", script],
-            capture_output=True,
-            timeout=_EXEC_TIMEOUT,
-            cwd=cwd,
-        )
-        output = result.stdout.decode("utf-8", errors="replace") + result.stderr.decode("utf-8", errors="replace")
-    except subprocess.TimeoutExpired as exc:
-        partial_out = (exc.output or b"").decode(errors="replace") if isinstance(exc.output, bytes) else (exc.output or "")
-        partial_err = (exc.stderr or b"").decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-        output = f"[TimeoutExpired after {_EXEC_TIMEOUT}s]\n" + partial_out + partial_err
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXEC_TIMEOUT)
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        output = f"[TimeoutExpired after {_EXEC_TIMEOUT}s]\n" + stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.communicate()
+        raise
+    else:
+        output = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
     if len(output) > 4000:
         output = output[:4000] + "\n... [truncated]"
     return output or "(no output)"
 
 
-def run_python_file(relative_path: str) -> str:
+async def run_python_file(relative_path: str) -> str:
     """Execute a Python script that lives inside the workspace directory.
 
     IMPORTANT: Only call this tool after the user has explicitly approved the
@@ -272,19 +288,29 @@ def run_python_file(relative_path: str) -> str:
     target = _safe_workspace_path(relative_path)
     if not target.exists():
         return f"File not found: {target}"
-    result = subprocess.run(
-        ["python", str(target)],
-        capture_output=True,
-        text=True,
-        timeout=_EXEC_TIMEOUT,
+    proc = await asyncio.create_subprocess_exec(
+        "python", str(target),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    output = result.stdout + result.stderr
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXEC_TIMEOUT)
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        output = f"[TimeoutExpired after {_EXEC_TIMEOUT}s]\n" + stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.communicate()
+        raise
+    else:
+        output = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
     if len(output) > 4000:
         output = output[:4000] + "\n... [truncated]"
     return output or "(no output)"
 
 
-def run_skill_script(
+async def run_skill_script(
     skill_name: str, script_name: str, args: str, tool_context: ToolContext
 ) -> str:
     """Execute a script bundled inside a skill's ``scripts/`` directory.
@@ -344,20 +370,25 @@ def run_skill_script(
         cmd = f"{script_path} {args}"
     else:
         cmd = f"bash {script_path} {args}"
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "-c", cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+        env=env,
+    )
     try:
-        result = subprocess.run(
-            ["bash", "-c", cmd],
-            capture_output=True,
-            text=True,
-            timeout=_EXEC_TIMEOUT,
-            cwd=cwd,
-            env=env,
-        )
-        output = result.stdout + result.stderr
-    except subprocess.TimeoutExpired as exc:
-        partial_out = (exc.output or b"").decode(errors="replace") if isinstance(exc.output, bytes) else (exc.output or "")
-        partial_err = (exc.stderr or b"").decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-        output = f"[TimeoutExpired after {_EXEC_TIMEOUT}s]\n" + partial_out + partial_err
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_EXEC_TIMEOUT)
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        output = f"[TimeoutExpired after {_EXEC_TIMEOUT}s]\n" + stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.communicate()
+        raise
+    else:
+        output = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
     if len(output) > 4000:
         output = output[:4000] + "\n... [truncated]"
     return output or "(no output)"

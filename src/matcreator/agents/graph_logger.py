@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Literal, Optional
 
-from ..workspace import get_workspace_root
+from ..workspace import ADK_DIR
 
 NodeStatus = Literal["idle", "running", "success", "failed", "needs_replanning"]
 NodeType = Literal["orchestrator", "planning", "execution", "tester", "step"]
@@ -51,7 +51,7 @@ class AgentGraphLogger:
 
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
-        graph_dir = get_workspace_root() / "agent_graphs"
+        graph_dir = ADK_DIR / "agent_graphs"
         graph_dir.mkdir(parents=True, exist_ok=True)
         self._path = graph_dir / f"{session_id}.json"
 

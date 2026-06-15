@@ -36,6 +36,18 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 matcreator = "matcreator.scripts.start_agent:main"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"matcreator" = [
+    "skills/**/*.md",
+    "skills/**/*.yaml",
+    "knowledge/MEMORY.md",
+    "agents/subagent.yaml",
+    "guides/*.md",
+]
+
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 branch = "main"

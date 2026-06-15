@@ -43,6 +43,7 @@ def _discover_skill_dirs(skills_root: Path) -> list[Path]:
 
 
 _MODULE_SKILLS_ROOT = Path(__file__).parent / "skills"
+_USER_SKILLS_ROOT = Path.home() / ".matcreator" / "skills"
 
 
 def get_default_skill_names() -> set[str]:
@@ -51,9 +52,10 @@ def get_default_skill_names() -> set[str]:
 
 
 def load_skills() -> list:
-    """Load default module skills plus workspace custom skills.
+    """Load default module skills, then user-global skills, then workspace custom skills.
 
-    Custom skills whose name collides with a default skill are rejected with a warning.
+    Skills from later sources whose name collides with an earlier source are rejected
+    with a warning.
     """
     default_names: set[str] = set()
     skills = []
@@ -63,10 +65,22 @@ def load_skills() -> list:
             skills.append(load_skill_from_dir(path))
         except Exception as exc:
             logger.error("Failed to load default skill '%s', skipping: %s", path.name, exc)
+    for path in _discover_skill_dirs(_USER_SKILLS_ROOT):
+        if path.name in default_names:
+            logger.warning(
+                "User skill '%s' in ~/.matcreator/skills conflicts with a bundled skill and will be ignored.",
+                path.name,
+            )
+            continue
+        default_names.add(path.name)
+        try:
+            skills.append(load_skill_from_dir(path))
+        except Exception as exc:
+            logger.error("Failed to load user skill '%s', skipping: %s", path.name, exc)
     for path in _discover_skill_dirs(workspace_skills_dir()):
         if path.name in default_names:
             logger.warning(
-                "Custom skill '%s' in workspace conflicts with a default skill and will be ignored.",
+                "Custom skill '%s' in workspace conflicts with a bundled or user skill and will be ignored.",
                 path.name,
             )
             continue
@@ -84,7 +98,7 @@ _PLANNING_CATEGORIES = frozenset({"concepts", "guides"})
 
 def _build_planning_skill_names() -> frozenset[str]:
     names: set[str] = set()
-    for root in [_MODULE_SKILLS_ROOT, workspace_skills_dir()]:
+    for root in [_MODULE_SKILLS_ROOT, _USER_SKILLS_ROOT, workspace_skills_dir()]:
         for path in _discover_skill_dirs(root):
             if path.parent.name in _PLANNING_CATEGORIES:
                 names.add(path.name)

@@ -2,7 +2,7 @@
 
 The workspace root is resolved in this order:
 1. ``MATCLAW_WORKSPACE`` environment variable (absolute or relative to CWD)
-2. ``~/.workspace/`` in the user's home directory
+2. ``~/.matcreator/workspace/`` (user-global default)
 
 On first use, call :func:`init_workspace` to create the directory tree.
 Default skills are loaded directly from the module; only custom (user-created)
@@ -26,9 +26,11 @@ def get_workspace_root() -> Path:
     env_val = os.environ.get("MATCLAW_WORKSPACE", "")
     if env_val:
         return Path(env_val).expanduser().resolve()
-    return (Path(__file__).parent / ".workspace").resolve()
+    return (Path.home() / ".matcreator" / "workspace").resolve()
 
 WORKSPACE_ROOT=get_workspace_root()  # resolved once at module load time for efficiency
+
+ADK_DIR = (Path.home() / ".matcreator" / ".adk").resolve()  # centralized session metadata
 
 
 def workspace_skills_dir() -> Path:
@@ -43,15 +45,17 @@ def workspace_memory_path() -> Path:
     return WORKSPACE_ROOT / "MEMORY.md"
 
 
-def get_session_workdir(session_id: str) -> Path:
+def get_session_workdir(session_id: str, custom_workdir: str | None = None) -> Path:
+    if custom_workdir:
+        return Path(custom_workdir).expanduser().resolve()
     env_val = os.environ.get("MATCLAW_SESSION_DIR", "")
     if env_val:
         return Path(env_val).expanduser().resolve()
-    return WORKSPACE_ROOT / "sessions" / session_id
+    return WORKSPACE_ROOT
 
 
-def init_session_workdir(session_id: str) -> Path:
-    d = get_session_workdir(session_id)
+def init_session_workdir(session_id: str, custom_workdir: str | None = None) -> Path:
+    d = get_session_workdir(session_id, custom_workdir=custom_workdir)
     d.mkdir(parents=True, exist_ok=True)
     return d
 

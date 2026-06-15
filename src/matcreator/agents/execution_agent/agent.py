@@ -146,7 +146,7 @@ def _exec_before_agent_callback(callback_context: CallbackContext) -> None:
             state[key] = default
 
     session_id = state.get("session_id", "default")
-    state["workspace_dir"] = str(get_session_workdir(session_id))
+    state["workspace_dir"] = state.get("workdir") or str(get_session_workdir(session_id))
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from ...tools.workspace_tools import (
     run_bash,
     run_python
 )
+from ...workspace import get_session_workdir
 from ...tools.util_tools import (
     show_artifact,
     show_plot,
@@ -324,6 +325,10 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
     ]:
         if key not in state:
             callback_context.state[key] = default
+
+    # Ensure workspace_dir reflects the session's actual workdir (respects custom_workdir)
+    session_id = state.get("session_id", "default")
+    callback_context.state["workspace_dir"] = state.get("workdir") or str(get_session_workdir(session_id))
 
     agent_mode = _get_agent_mode(state)
     if agent_mode == "flash":
