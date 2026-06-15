@@ -108,7 +108,6 @@ GRAPH_AGENT_MODEL="MODEL_TYPE"             # optional; defaults to LLM_MODEL
 REVIEW_AGENT_MODEL="MODEL_TYPE"            # optional; defaults to GRAPH_AGENT_MODEL
 LLM_API_KEY="API_KEYS"
 LLM_BASE_URL="BASE_URL"
-KDG_DB_PATH="agents/MatCreator/.adk/know_do_graph.db"
 EMBEDDING_MODEL="EMBEDDING_MODEL_TYPE"
 MATCREATOR_AUTO_REVIEW=1
 MATCREATOR_REVIEW_TRIGGER_THRESHOLD=20
@@ -128,6 +127,9 @@ BOHRIUM_VASP_IMAGE=""
 BOHRIUM_VASP_MACHINE=""
 ...
 ```
+
+`KDG_DB_PATH` is optional. If you leave it unset, MatCreator stores the
+knowledge graph at `agents/MatCreator/.adk/know_do_graph.db` by default.
 
 If you prefer different LLM models for sub-agents, you can override the default setting at the `.env` file within sub-agents directories. 
 

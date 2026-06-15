@@ -19,6 +19,7 @@ from .summarize import validate_summarize
 from .session_summary import write_session_summary
 from ...skill import ALL_SKILLS, PLANNING_SKILL_NAMES, ALL_SKILLS_TOOLSET, refresh_skills, seed_skills_to_graph
 from .memory import (
+    chat_with_knowledge_graph,
     get_related_skills,
     query_knowledge_graph,
     read_memory,
@@ -26,7 +27,6 @@ from .memory import (
     save_to_knowledge_graph,
     search_skill_context,
     search_skills,
-    talk_to_knowledge_graph_agent,
     update_memory,
 )
 from ...tools.workspace_tools import (
@@ -252,7 +252,7 @@ You are MatCreator, an AI assistant for computational materials science.
 - Use `query_knowledge_graph` to retrieve L1/L2 planning knowledge and past memory.
 - After selecting a skill, call `search_skill_context` for its attached L3/L4 details.
 - After completing work, call `save_to_knowledge_graph` to persist key findings.
-- Use `talk_to_knowledge_graph_agent` only when the user requests graph or memory review.
+- Use `chat_with_knowledge_graph` when the user wants to inspect or update the Know-Do Graph directly.
 
 ## Rules
 - Be concise and responsive.
@@ -284,8 +284,8 @@ Your role here is **PLANNING ONLY**: you are responsible only for planning; all 
 4. If the user asks to create or test a skill, call `request_skill_testing(description)`.
 5. After completing a node, use `save_to_knowledge_graph` to persist key lessons or findings.
 6. Once execution has fully completed, call `write_session_summary` with the global narrative.
-7. When the user requests knowledge review or memory modification, call
-   `talk_to_knowledge_graph_agent`. It enforces protected verification statuses.
+7. When the user requests direct Know-Do Graph interaction, call
+   `chat_with_knowledge_graph`.
 
 ## DAG Planning Guidelines
 - **Node IDs**: use descriptive snake_case prefixed with `step_`, e.g. `step_download_data`.
@@ -421,7 +421,7 @@ thinking_agent = LlmAgent(
         FunctionTool(get_related_skills),
         FunctionTool(query_knowledge_graph),
         FunctionTool(save_to_knowledge_graph),
-        FunctionTool(talk_to_knowledge_graph_agent),
+        FunctionTool(chat_with_knowledge_graph),
         FunctionTool(run_synthesizer),
         FunctionTool(read_memory),
         FunctionTool(update_memory),

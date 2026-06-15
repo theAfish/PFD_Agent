@@ -7,6 +7,22 @@ from agents.MatCreator.knowledge import migrate
 from agents.MatCreator.knowledge import query
 
 
+def test_default_kdg_db_path_is_used_when_env_is_missing(monkeypatch) -> None:
+    monkeypatch.delenv("KDG_DB_PATH", raising=False)
+    monkeypatch.setattr(constants.os, "environ", constants.os.environ.copy())
+
+    expected = constants.DEFAULT_KDG_DB_PATH.resolve()
+
+    constants.os.environ.setdefault("KDG_DB_PATH", str(constants.DEFAULT_KDG_DB_PATH))
+    kdg_db_path = Path(constants.os.environ["KDG_DB_PATH"]).expanduser()
+    if not kdg_db_path.is_absolute():
+        kdg_db_path = (constants._PROJECT_ROOT / kdg_db_path).resolve()
+    if kdg_db_path.suffix != ".db":
+        kdg_db_path = kdg_db_path / "know_do_graph.db"
+
+    assert kdg_db_path == expected
+
+
 def test_get_kg_does_not_touch_legacy_sources(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "know_do_graph.db"
     memory_dir = tmp_path / "memory"

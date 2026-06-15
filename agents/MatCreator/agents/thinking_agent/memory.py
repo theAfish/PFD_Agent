@@ -24,7 +24,7 @@ from ...knowledge.query import (
     search_skill_context,
     get_related_skills,
 )
-from ...knowledge.review import talk_to_knowledge_graph_agent as _talk_to_knowledge_graph_agent
+from ...knowledge.review import chat_with_knowledge_graph as _chat_with_knowledge_graph
 from ...knowledge.synthesizer import run_knowledge_synthesizer as _run_synthesizer
 
 
@@ -66,26 +66,19 @@ def save_to_knowledge_graph(
     )
 
 
-def talk_to_knowledge_graph_agent(
-    operation: str,
+def chat_with_knowledge_graph(
+    message: str,
     tool_context: ToolContext,
-    instructions: str = "",
-    batch_size: int = 5,
+    read_only: bool = False,
 ) -> dict:
-    """Ask the policy-controlled Know-Do reviewer to review graph or memory.
+    """Send a message to Know-Do Graph's general chat agent.
 
     Args:
-        operation: ``review_graph`` or ``review_memory``.
-        instructions: Optional focused review/distillation instructions.
-        batch_size: Maximum nodes to process in this operation.
+        message: Natural-language instruction or question for the graph agent.
+        read_only: When true, restrict the KDG session to query-only tools.
     """
-    session_id = tool_context.state.get("session_id", "default")
-    return _talk_to_knowledge_graph_agent(
-        operation,
-        instructions=instructions,
-        session_id=session_id,
-        batch_size=batch_size,
-    )
+    del tool_context
+    return _chat_with_knowledge_graph(message, read_only=read_only)
 
 
 def run_synthesizer(

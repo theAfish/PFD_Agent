@@ -8,7 +8,7 @@ from .query import (
     search_skill_context,
     search_skills,
 )
-from .review import talk_to_knowledge_graph_agent
+from .review import chat_with_knowledge_graph
 from .extractor import run_knowledge_extractor
 from .synthesizer import run_knowledge_synthesizer
 from .migrate import migrate_memory_md, run_legacy_migration
@@ -22,7 +22,7 @@ __all__ = [
     "get_related_skills",
     "get_migration_result",
     "run_legacy_migration",
-    "talk_to_knowledge_graph_agent",
+    "chat_with_knowledge_graph",
     "run_knowledge_extractor",
     "run_knowledge_synthesizer",
     "migrate_memory_md",

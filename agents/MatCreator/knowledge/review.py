@@ -48,35 +48,24 @@ def normalize_review_model(model: str) -> str:
     return model.split("/", 1)[1] if "/" in model else model
 
 
-def talk_to_knowledge_graph_agent(
-    operation: str,
-    instructions: str = "",
-    session_id: str | None = None,
-    batch_size: int = 5,
+def chat_with_knowledge_graph(
+    message: str,
+    *,
+    read_only: bool = False,
 ) -> dict[str, Any]:
-    """Run a policy-controlled graph or memory review agent operation.
+    """Send a message to KDG's general graph chat agent.
 
-    Supported operations are ``review_graph`` and ``review_memory``. Durable
-    nodes marked peer-reviewed or community-tested are protected from mutation
-    by the enforced review policy.
+    This uses the Know-Do Graph ``graph`` agent, which can answer questions and,
+    when ``read_only`` is false, use the graph's normal mutation tools.
     """
     from ..constants import GRAPH_AGENT_MODEL, LLM_API_KEY, LLM_BASE_URL
     from .query import _get_kg
 
-    normalized_operation = operation.strip().lower()
-    if normalized_operation not in {"review_graph", "review_memory"}:
-        return {
-            "status": "error",
-            "message": "operation must be 'review_graph' or 'review_memory'.",
-        }
-    if batch_size <= 0:
-        return {"status": "error", "message": "batch_size must be greater than zero."}
+    if not message.strip():
+        return {"status": "error", "message": "message must not be empty."}
 
     graph = _get_kg()
-    model = normalize_review_model(
-        os.environ.get("REVIEW_AGENT_MODEL")
-        or os.environ.get("GRAPH_AGENT_MODEL", GRAPH_AGENT_MODEL)
-    )
+    model = normalize_review_model(os.environ.get("GRAPH_AGENT_MODEL", GRAPH_AGENT_MODEL))
     api_key = (
         os.environ.get("LLM_API_KEY")
         or LLM_API_KEY
@@ -91,27 +80,22 @@ def talk_to_knowledge_graph_agent(
 
     try:
         session = graph.chat(
-            agent="reviewer",
+            agent="graph",
             model=model,
             api_key=api_key,
             base_url=base_url,
-            batch_size=batch_size,
-            policy=review_policy(),
-            strategy=os.environ.get("MATCREATOR_REVIEW_STRATEGY", "auto"),
+            read_only=read_only,
         )
-        if normalized_operation == "review_memory":
-            result = session.review_memory(
-                session_id=session_id,
-                instructions=instructions,
-            )
-        else:
-            result = session.review_nodes(instructions=instructions)
+        response = session.send(message)
         graph.refresh()
-        return result
+        return {
+            "status": "ok",
+            "read_only": read_only,
+            "response": response,
+        }
     except Exception as exc:
         return {
             "status": "error",
-            "operation": normalized_operation,
             "message": f"Know-Do Graph agent failed: {exc}",
         }
 
