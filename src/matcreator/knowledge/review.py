@@ -69,12 +69,11 @@ def chat_with_knowledge_graph(
     api_key = (
         os.environ.get("LLM_API_KEY")
         or LLM_API_KEY
-        or os.environ.get("MINIMAX_API_KEY", "")
+        or ""
     )
     base_url = (
         os.environ.get("LLM_BASE_URL")
         or LLM_BASE_URL
-        or os.environ.get("MINIMAX_API_BASE")
         or None
     )
 
