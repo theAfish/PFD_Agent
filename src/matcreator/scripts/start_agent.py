@@ -24,11 +24,8 @@ Examples:
 import asyncio
 import json
 import os
-<<<<<<< HEAD
 import shutil
 import subprocess
-=======
->>>>>>> origin/refactor
 import sys
 import time
 import uuid
@@ -548,8 +545,6 @@ def knowledge_group():
     """Inspect and manage the knowledge graph."""
 
 
-<<<<<<< HEAD
-=======
 def _ensure_workspace(workspace: str | None) -> None:
     if workspace:
         ws_root = Path(workspace).expanduser().resolve()
@@ -557,7 +552,6 @@ def _ensure_workspace(workspace: str | None) -> None:
         ws_root.mkdir(parents=True, exist_ok=True)
 
 
->>>>>>> origin/refactor
 @knowledge_group.command("query")
 @click.argument("text")
 @click.option("--top-k", default=15, show_default=True, type=int,
@@ -568,14 +562,8 @@ def _ensure_workspace(workspace: str | None) -> None:
               help="Override the workspace root directory.")
 def knowledge_query(text, top_k, depth, workspace):
     """Query the memory knowledge graph for nodes matching TEXT."""
-<<<<<<< HEAD
-    _setup_workspace(workspace)
-    _ensure_project_imports()
-    from agents.MatCreator.knowledge.query import query_knowledge_graph
-=======
     _ensure_workspace(workspace)
     from matcreator.knowledge.query import query_knowledge_graph
->>>>>>> origin/refactor
     result = query_knowledge_graph(text, depth=depth, top_k=top_k)
     click.echo(result)
 
@@ -588,14 +576,8 @@ def knowledge_query(text, top_k, depth, workspace):
               help="Override the workspace root directory.")
 def knowledge_search_skills(text, top_k, workspace):
     """Search for skill nodes semantically matching TEXT."""
-<<<<<<< HEAD
-    _setup_workspace(workspace)
-    _ensure_project_imports()
-    from agents.MatCreator.knowledge.query import search_skills
-=======
     _ensure_workspace(workspace)
     from matcreator.knowledge.query import search_skills
->>>>>>> origin/refactor
     result = search_skills(text, top_k=top_k)
     click.echo(result)
 
@@ -610,14 +592,8 @@ def knowledge_search_skills(text, top_k, workspace):
               help="Override the workspace root directory.")
 def knowledge_related_skills(start_node, top_k, depth, workspace):
     """Traverse the dependency graph from a known skill START_NODE."""
-<<<<<<< HEAD
-    _setup_workspace(workspace)
-    _ensure_project_imports()
-    from agents.MatCreator.knowledge.query import get_related_skills
-=======
     _ensure_workspace(workspace)
     from matcreator.knowledge.query import get_related_skills
->>>>>>> origin/refactor
     result = get_related_skills(start_node, top_k=top_k, depth=depth)
     click.echo(result)
 
@@ -627,16 +603,9 @@ def knowledge_related_skills(start_node, top_k, depth, workspace):
               help="Override the workspace root directory.")
 def knowledge_stats(workspace):
     """Print durable Know-Do and writable MemGraph counts."""
-<<<<<<< HEAD
-    _setup_workspace(workspace)
-    _ensure_project_imports()
-    from agents.MatCreator.knowledge.kdg_memory import iter_memory
-    from agents.MatCreator.knowledge.query import _get_kg
-=======
     _ensure_workspace(workspace)
     from matcreator.knowledge.kdg_memory import iter_memory
     from matcreator.knowledge.query import _get_kg
->>>>>>> origin/refactor
     graph = _get_kg()
     stats = graph.stats()
     memories = list(iter_memory(graph))
@@ -654,14 +623,8 @@ def knowledge_stats(workspace):
               help="Override the workspace root directory.")
 def knowledge_seed(workspace):
     """Seed Know-Do Graph with all SKILL.md and guide entries."""
-<<<<<<< HEAD
-    _setup_workspace(workspace)
-    _ensure_project_imports()
-    from agents.MatCreator.skill import seed_skills_to_graph
-=======
     _ensure_workspace(workspace)
     from matcreator.skill import seed_skills_to_graph
->>>>>>> origin/refactor
     result = seed_skills_to_graph()
     click.echo(
         f"Created {result['seeded']} entries and "
@@ -676,28 +639,13 @@ def knowledge_seed(workspace):
               help="Also import a legacy MEMORY.md file.")
 def knowledge_migrate(workspace, memory_md):
     """Migrate legacy skill, memory, and optional MEMORY.md data."""
-<<<<<<< HEAD
-    _setup_workspace(workspace)
-    _ensure_project_imports()
-    from agents.MatCreator.constants import KNOW_DO_GRAPH_DB
-    from agents.MatCreator.knowledge.kdg_memory import iter_memory
-    from agents.MatCreator.knowledge.migrate import (
-        migrate_memory_md,
-        run_legacy_migration,
-    )
-    from agents.MatCreator.knowledge.query import (
-        _get_kg,
-        get_migration_result,
-    )
-=======
     _ensure_workspace(workspace)
     from matcreator.constants import KNOW_DO_GRAPH_DB
     from matcreator.knowledge.kdg_memory import iter_memory
     from matcreator.knowledge.migrate import migrate_memory_md
     from matcreator.knowledge.query import _get_kg, get_migration_result
->>>>>>> origin/refactor
 
-    result = run_legacy_migration()
+    result = get_migration_result()
     click.echo(
         "Newly migrated from legacy sources: "
         f"{result.get('know_do_nodes', 0)} durable entries, "
@@ -727,15 +675,8 @@ def knowledge_migrate(workspace, memory_md):
               help="Override the workspace root directory.")
 def knowledge_distill(min_evidence, stale_days, workspace):
     """Promote repeated successful memory into durable Know-Do entries."""
-<<<<<<< HEAD
-    _setup_workspace(workspace)
-    _ensure_project_imports()
-    from agents.MatCreator.knowledge.synthesizer import run_knowledge_synthesizer
-=======
     _ensure_workspace(workspace)
     from matcreator.knowledge.synthesizer import run_knowledge_synthesizer
->>>>>>> origin/refactor
-
     result = run_knowledge_synthesizer(
         stale_days=stale_days,
         min_insights_for_workflow=min_evidence,
