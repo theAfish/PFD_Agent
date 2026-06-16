@@ -23,6 +23,8 @@ Every invocation runs a planning-first loop:
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 from google.adk.agents import BaseAgent
@@ -30,7 +32,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from pydantic import Field
 
-from ...workspace import init_session_workdir
+from ...workspace import init_session_workdir, WORKSPACE_ROOT
 from ..graph_logger import AgentGraphLogger
 from ..cancellation import clear_cancellation
 from ...knowledge.extractor import run_knowledge_extractor
@@ -97,8 +99,19 @@ class PlanningExecutionOrchestrator(BaseAgent):
         state = ctx.session.state
 
         if not state.get("session_workdir_initialized"):
-            init_session_workdir(ctx.session.id)
+            custom_workdir = state.get("custom_workdir") or None
+            if custom_workdir and os.environ.get("MATCREATOR_MODE") == "server":
+                try:
+                    candidate = Path(custom_workdir).expanduser().resolve()
+                    if not candidate.is_relative_to(WORKSPACE_ROOT):
+                        logger.warning("[orchestrator] custom_workdir %s rejected (outside WORKSPACE_ROOT); using default", custom_workdir)
+                        custom_workdir = None
+                except Exception:
+                    custom_workdir = None
+
+            workdir = init_session_workdir(ctx.session.id, custom_workdir=custom_workdir)
             state["session_id"] = ctx.session.id
+            state["workdir"] = str(workdir)
             state["session_workdir_initialized"] = True
 
         graph = AgentGraphLogger(ctx.session.id)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import List, Literal, Optional
@@ -8,7 +9,7 @@ from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from ...skill import ALL_SKILLS_TOOLSET
@@ -45,6 +46,19 @@ class StepExecutorResult(BaseModel):
         default_factory=list,
         description="Absolute paths of generated files or artifacts",
     )
+
+    @field_validator("artifacts", mode="before")
+    @classmethod
+    def _coerce_artifacts(cls, v):
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+            return [v] if v else []
+        return v
     concise_summary: str = Field(
         default="",
         description="Short user-facing paragraph describing what was done",

@@ -10,7 +10,6 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
 from google.adk.agents.callback_context import CallbackContext
-from google.adk.models.llm_request import LlmRequest
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .planning import validate_plan, validate_graph
@@ -34,6 +33,7 @@ from ...tools.workspace_tools import (
     run_bash,
     run_python
 )
+from ...workspace import get_session_workdir
 from ...tools.util_tools import (
     show_artifact,
     show_plot,
@@ -47,8 +47,6 @@ logger = logging.getLogger(__name__)
 _model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
-
-_FLASH_DISABLED_TOOLS = frozenset({"validate_graph", "confirm_plan_and_start_execution"})
 
 def _seed_skills_background() -> None:
     try:
@@ -348,6 +346,10 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
         if key not in state:
             callback_context.state[key] = default
 
+    # Ensure workspace_dir reflects the session's actual workdir (respects custom_workdir)
+    session_id = state.get("session_id", "default")
+    callback_context.state["workspace_dir"] = state.get("workdir") or str(get_session_workdir(session_id))
+
     agent_mode = _get_agent_mode(state)
     if agent_mode == "flash":
         callback_context.state["instruction_body"] = _FLASH_INSTRUCTION.format(
@@ -371,23 +373,6 @@ def before_agent_callback(callback_context: CallbackContext) -> None:
             confirmation_instruction=confirmation_instruction,
         )
 
-    return None
-
-def before_model_callback(
-    callback_context: CallbackContext, llm_request: LlmRequest
-) -> None:
-    state = callback_context._invocation_context.session.state
-    if _get_agent_mode(state) != "flash":
-        return None
-    for name in _FLASH_DISABLED_TOOLS:
-        llm_request.tools_dict.pop(name, None)
-    if llm_request.config.tools:
-        for tool_obj in llm_request.config.tools:
-            if getattr(tool_obj, "function_declarations", None):
-                tool_obj.function_declarations = [
-                    d for d in tool_obj.function_declarations
-                    if d.name not in _FLASH_DISABLED_TOOLS
-                ]
     return None
 
 # ---------------------------------------------------------------------------
@@ -439,5 +424,4 @@ thinking_agent = LlmAgent(
         #ALL_SKILLS_TOOLSET,
     ],
     before_agent_callback=before_agent_callback,
-    before_model_callback=before_model_callback,
 )

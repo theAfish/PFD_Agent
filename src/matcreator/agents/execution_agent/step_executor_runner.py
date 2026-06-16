@@ -119,14 +119,14 @@ async def _stream_step_events(
                     text = getattr(part, "text", None)
 
                     if is_thought and text:
-                        graph.log_conversation_event(step_id, {
+                        await asyncio.to_thread(graph.log_conversation_event, step_id, {
                             "timestamp": _now(),
                             "author": event.author,
                             "type": "thought",
                             "content": text,
                         })
                     elif text and not fc and not fr:
-                        graph.log_conversation_event(step_id, {
+                        await asyncio.to_thread(graph.log_conversation_event, step_id, {
                             "timestamp": _now(),
                             "author": event.author,
                             "type": "text",
@@ -138,7 +138,7 @@ async def _stream_step_events(
                             "args_summary": str(dict(fc.args or {}))[:300],
                             "start_time": _now(),
                         }
-                        graph.log_conversation_event(step_id, {
+                        await asyncio.to_thread(graph.log_conversation_event, step_id, {
                             "timestamp": _now(),
                             "author": event.author,
                             "type": "function_call",
@@ -151,8 +151,8 @@ async def _stream_step_events(
                         record = pending_tool_calls.pop(fr.name, {"name": fr.name, "start_time": _now()})
                         record["result_summary"] = str(fr.response)[:300]
                         record["end_time"] = _now()
-                        graph.log_tool_call(step_id, record)
-                        graph.log_conversation_event(step_id, {
+                        await asyncio.to_thread(graph.log_tool_call, step_id, record)
+                        await asyncio.to_thread(graph.log_conversation_event, step_id, {
                             "timestamp": _now(),
                             "author": event.author,
                             "type": "function_response",
@@ -193,19 +193,11 @@ async def run_step_executor(
             ),
         }
 
-    # Use node_id for workspace/label when provided (DAG mode); fall back to step_number.
+    # Use node_id for label when provided (DAG mode); fall back to step_number.
     effective_id = node_id if node_id else str(step_number)
 
-    # Workspace: nested under parent when called recursively; under session workdir at depth 0.
-    if recursion_depth > 0:
-        parent_workspace = Path(tool_context.state.get("workspace_dir", ""))
-        step_workspace = parent_workspace / f"sub_{effective_id}"
-    else:
-        plan_exec_id = tool_context.state.get("plan_exec_id")
-        if not plan_exec_id:
-            plan_exec_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-            tool_context.state["plan_exec_id"] = plan_exec_id
-        step_workspace = get_session_workdir(session_id) / plan_exec_id / f"node_{effective_id}"
+    # All steps CWD directly to the session workdir — no per-execution or per-node subdirs.
+    step_workspace = Path(tool_context.state.get("workspace_dir") or str(get_session_workdir(session_id)))
     step_workspace.mkdir(parents=True, exist_ok=True)
     logger.debug("[step_executor_runner] depth=%d node %s workspace: %s", recursion_depth, effective_id, step_workspace)
 
@@ -214,7 +206,7 @@ async def run_step_executor(
     step_id = f"{parent_id}__node_{effective_id}"
     parent_path = tool_context.state.get("_step_label_path", "")
     step_label_path = f"{parent_path}-{effective_id}" if parent_path else effective_id
-    graph.log_node_start(step_id, "step", f"Node {step_label_path}", parent_id)
+    await asyncio.to_thread(graph.log_node_start, step_id, "step", f"Node {step_label_path}", parent_id)
 
     # Serialize input as user message (matches AgentTool input_schema path)
     step_input = StepExecutorInput(
@@ -230,7 +222,7 @@ async def run_step_executor(
     )
 
     # Log input parameters
-    graph.log_node_input(step_id, {
+    await asyncio.to_thread(graph.log_node_input, step_id, {
         "node_id": effective_id,
         "step_number": step_number,
         "action": action,
@@ -246,13 +238,12 @@ async def run_step_executor(
             "[CANCEL] Node %s aborted before start (session=%s, reason=%s)",
             effective_id, session_id, reason,
         )
-        graph.log_node_complete(step_id, "failed", summary=f"Cancelled before start: {reason}")
+        await asyncio.to_thread(graph.log_node_complete, step_id, "failed", summary=f"Cancelled before start: {reason}")
         clear_step_cancellation(session_id, step_number)
         return {
             "status": "cancelled",
             "message": f"Node {effective_id} skipped: execution cancellation was requested ({reason}).",
         }
-
     # Create runner with isolated session (mirrors AgentTool)
     invocation_context = tool_context._invocation_context
     child_app_name = (
@@ -301,11 +292,10 @@ async def run_step_executor(
     plot_paths: list[str] = []
     try:
         step_state_delta, plot_paths = await asyncio.wait_for(
-            asyncio.shield(inner_task), timeout=_SUB_STEP_TIMEOUT
+            inner_task, timeout=_SUB_STEP_TIMEOUT
         )
     except asyncio.TimeoutError:
         timed_out = True
-        inner_task.cancel()
     except asyncio.CancelledError:
         cancelled = True
     finally:
@@ -322,7 +312,8 @@ async def run_step_executor(
             "[TIMEOUT] Step %d timed out after %ds (session=%s)",
             step_number, _SUB_STEP_TIMEOUT, session_id,
         )
-        graph.log_node_complete(
+        await asyncio.to_thread(
+            graph.log_node_complete,
             step_id, "needs_replanning",
             summary=f"Timed out after {_SUB_STEP_TIMEOUT}s",
         )
@@ -338,7 +329,8 @@ async def run_step_executor(
             "[CANCEL] Step %d task cancelled (session=%s, reason=%s)",
             step_number, session_id, reason,
         )
-        graph.log_node_complete(
+        await asyncio.to_thread(
+            graph.log_node_complete,
             step_id, "failed", summary=f"Cancelled mid-step ({reason})"
         )
         clear_step_cancellation(session_id, step_number)
@@ -348,13 +340,14 @@ async def run_step_executor(
         }
 
     if step_state_delta:
-        graph.log_state_delta(step_id, step_state_delta)
+        await asyncio.to_thread(graph.log_state_delta, step_id, step_state_delta)
 
     step_result_data = step_state_delta.get("_step_result")
     if step_result_data:
         tool_context.state["_step_result"] = None  # State has no pop(); reset instead
         result = StepExecutorResult.model_validate(step_result_data)
-        graph.log_node_complete(
+        await asyncio.to_thread(
+            graph.log_node_complete,
             step_id,
             result.status,
             summary=result.concise_summary,
@@ -373,6 +366,6 @@ async def run_step_executor(
         status="needs_replanning",
         replan_reason="step executor did not call submit_step_result — no result captured",
     )
-    graph.log_node_complete(step_id, "needs_replanning")
+    await asyncio.to_thread(graph.log_node_complete, step_id, "needs_replanning")
     clear_step_cancellation(session_id, step_number)
     return result.model_dump()

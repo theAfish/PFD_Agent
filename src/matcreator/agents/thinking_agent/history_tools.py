@@ -15,9 +15,13 @@ from google.adk.tools.tool_context import ToolContext
 logger = logging.getLogger(__name__)
 
 
+def _adk_dir():
+    from ...workspace import ADK_DIR  # lazy import avoids circular deps
+    return ADK_DIR
+
+
 def _workspace_root():
     from ...workspace import get_workspace_root  # lazy import avoids circular deps
-
     return get_workspace_root()
 
 
@@ -102,7 +106,7 @@ def read_agent_graph(
         session_id: Session to read. Defaults to the current session.
     """
     sid = session_id or tool_context._invocation_context.session.id
-    graph_path = _workspace_root() / "agent_graphs" / f"{sid}.json"
+    graph_path = _adk_dir() / "agent_graphs" / f"{sid}.json"
 
     if not graph_path.exists():
         return {
