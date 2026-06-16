@@ -66,12 +66,16 @@ _KNOWLEDGE_PATH= _script_dir / "knowledge"
 _SKILLS_DIR = _script_dir / "skills"
 _GUIDES_DIR = _script_dir/ "guides"
 _MEMORY_PATH = _KNOWLEDGE_PATH /"MEMORY.md"
-
-# Unified Know-Do Graph storage. Default to the agent's ADK directory so the
-# graph lives alongside other MatCreator runtime state unless explicitly
-# overridden with KDG_DB_PATH.
-os.environ.setdefault("KDG_DB_PATH", str(_ADK_DIR))
 _PROJECT_ROOT = _AGENT_PATH.parents[1]
+
+# The knowledge graph stays in the repository-local ADK directory by default so
+# CLI graph tooling and checked-in docs keep pointing at the same database.
+DEFAULT_KDG_DB_DIR = _PROJECT_ROOT / "agents" / "MatCreator" / ".adk"
+DEFAULT_KDG_DB_PATH = DEFAULT_KDG_DB_DIR / "know_do_graph.db"
+
+# Unified Know-Do Graph storage. Prefer the repository-local default unless the
+# caller explicitly overrides it with KDG_DB_PATH.
+os.environ.setdefault("KDG_DB_PATH", str(DEFAULT_KDG_DB_PATH))
 _kdg_db_path = Path(os.environ["KDG_DB_PATH"]).expanduser()
 if not _kdg_db_path.is_absolute():
     _kdg_db_path = (_PROJECT_ROOT / _kdg_db_path).resolve()
@@ -80,8 +84,9 @@ if _kdg_db_path.suffix != ".db":
 KNOW_DO_GRAPH_DB = _kdg_db_path
 KNOW_DO_MEMORY_DIR = KNOW_DO_GRAPH_DB.parent / "memory"
 
-# Read-only migration sources (old agents/MatCreator/.adk/ location). New code must not write here.
-_LEGACY_ADK_DIR = _PROJECT_ROOT / "agents" / "MatCreator" / ".adk"
+# Read-only migration sources from the previous user-home location. New code
+# must not write here.
+_LEGACY_ADK_DIR = _ADK_DIR
 LEGACY_UNIFIED_GRAPH_DB = _LEGACY_ADK_DIR / "know_do_graph.db"
 LEGACY_UNIFIED_MEMORY_DIR = _LEGACY_ADK_DIR / "memory"
 LEGACY_SKILL_GRAPH_DB = _LEGACY_ADK_DIR / "skill_graph.db"
