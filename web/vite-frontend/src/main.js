@@ -1,5 +1,8 @@
 import { marked } from "marked";
 import { Network, DataSet } from "vis-network/standalone";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 import * as $3Dmol from "3dmol";
 import "./style.css";
 
@@ -17,6 +20,7 @@ const state = {
   displayName: localStorage.getItem("mat_displayName") || localStorage.getItem("mat_userId") || "",
   activeSessionUserId: localStorage.getItem("mat_userId") || "",
   isAdmin: false,
+  deploymentMode: localStorage.getItem("mat_deploymentMode") || "local",
   sessionReady: false,
   structure3dViewer: null,
   currentUploads: [],
@@ -39,6 +43,7 @@ const uploadStatus = document.getElementById("upload-status");
 const sessionIdEl = document.getElementById("session-id");
 const sessionListEl = document.getElementById("session-list");
 const resetBtn = document.getElementById("reset-session");
+const workspaceCliToggle = document.getElementById("workspace-cli-toggle");
 const refreshSessionsBtn = document.getElementById("refresh-sessions");
 const graphViewport = document.getElementById("graph-viewport");
 const graphDetail = document.getElementById("graph-detail");
@@ -83,7 +88,12 @@ const filesColToggleBtn = document.getElementById("files-col-toggle");
 const knowledgeReviewBanner = document.getElementById("knowledge-review-banner");
 const knowledgeReviewText = document.getElementById("knowledge-review-text");
 const knowledgeReviewSpinner = document.getElementById("knowledge-review-spinner");
+const workspaceCli = document.getElementById("workspace-cli");
+const workspaceTerminalEl = document.getElementById("workspace-terminal");
 let knowledgeReviewPoll = null;
+let workspaceTerminal = null;
+let workspaceTerminalFit = null;
+let workspaceTerminalSocket = null;
 
 function autoResizeTextInput() {
   if (!textInput) return;
@@ -403,6 +413,7 @@ class AgentGraphView {
 
     const rawNodes = Object.values(graphData.nodes);
     this._nodeData = graphData.nodes;
+    stepExecutionFeed.update(graphData);
     const displayEdges = this._buildDisplayEdges(rawNodes, graphData.edges || []);
     const levels = this._computeLevels(rawNodes, displayEdges);
     this._resizeSurface(levels);
@@ -600,8 +611,8 @@ class AgentGraphView {
       document.getElementById("detail-toolcalls-row").style.display = "none";
     }
 
-    // Conversation transcript
-    const conversation = raw.conversation || [];
+    // Conversation transcript is rendered live in the main chat step feed.
+    const conversation = raw.type === "step" ? [] : (raw.conversation || []);
     this._detailConversation.innerHTML = "";
     if (conversation.length) {
       conversation.forEach((evt) => {
@@ -623,6 +634,7 @@ class AgentGraphView {
     }
 
     this._detailEl.classList.remove("hidden");
+    if (raw.type === "step") stepExecutionFeed.highlight(raw.id);
     syncPanelResizerVisibility();
     if (preserveScroll) {
       this._restoreOpenToolCallKeys(prevOpenToolCallKeys);
@@ -639,6 +651,202 @@ class AgentGraphView {
   notifyLayoutChanged() {
     if (!this._network) return;
     this._network.redraw();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Step executor feed in the main chat window
+// ---------------------------------------------------------------------------
+
+class StepExecutionFeed {
+  constructor() {
+    this._cards = new Map();
+    this._userOpen = new Map();
+    this._nestedOpen = new Map();
+    this._highlightedId = null;
+  }
+
+  reset() {
+    this._cards.clear();
+    this._userOpen.clear();
+    this._nestedOpen.clear();
+    this._highlightedId = null;
+  }
+
+  update(graphData) {
+    if (!graphData || typeof graphData.nodes !== "object") return;
+    const steps = Object.values(graphData.nodes)
+      .filter((node) => node.type === "step")
+      .sort((a, b) => {
+        const ta = a.start_time ? new Date(a.start_time).getTime() : Infinity;
+        const tb = b.start_time ? new Date(b.start_time).getTime() : Infinity;
+        return ta - tb;
+      });
+
+    const seen = new Set(steps.map((node) => node.id));
+    for (const nodeId of this._cards.keys()) {
+      if (!seen.has(nodeId)) {
+        this._cards.delete(nodeId);
+        this._nestedOpen.delete(nodeId);
+      }
+    }
+
+    const shouldStick = isChatNearBottom();
+    steps.forEach((node) => this._upsert(node));
+    if (shouldStick) scrollToBottom();
+  }
+
+  highlight(nodeId) {
+    this._highlightedId = nodeId;
+    for (const [id, card] of this._cards.entries()) {
+      card.classList.toggle("step-feed-highlight", id === nodeId);
+    }
+    const card = this._cards.get(nodeId);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setTimeout(() => card.classList.remove("step-feed-highlight"), 1600);
+    }
+  }
+
+  _upsert(node) {
+    let outer = this._cards.get(node.id);
+    if (!outer || !chatArea.contains(outer)) {
+      outer = this._createCard(node);
+      this._cards.set(node.id, outer);
+      chatArea.appendChild(outer);
+    }
+    this._renderCard(outer, node);
+  }
+
+  _createCard(node) {
+    const outer = document.createElement("div");
+    outer.className = "message agent-message step-feed-message";
+    outer.dataset.stepNodeId = node.id;
+    outer.appendChild(createAgentAvatarEl());
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble step-feed-bubble";
+    const details = document.createElement("details");
+    details.className = "step-feed-details";
+    details.addEventListener("toggle", () => {
+      this._userOpen.set(node.id, details.open);
+    });
+    bubble.appendChild(details);
+    outer.appendChild(bubble);
+    return outer;
+  }
+
+  _wireNested(nodeId, key, details) {
+    let nodeState = this._nestedOpen.get(nodeId);
+    if (!nodeState) {
+      nodeState = new Map();
+      this._nestedOpen.set(nodeId, nodeState);
+    }
+    if (nodeState.has(key)) {
+      details.open = nodeState.get(key);
+    }
+    details.dataset.stepNestedKey = key;
+    details.addEventListener("toggle", (event) => {
+      if (event.target !== details) return;
+      nodeState.set(key, details.open);
+    });
+    return details;
+  }
+
+  _renderCard(outer, node) {
+    outer.dataset.stepNodeId = node.id;
+    outer.classList.toggle("step-feed-highlight", this._highlightedId === node.id);
+
+    const details = outer.querySelector(".step-feed-details");
+    const userChoice = this._userOpen.get(node.id);
+    details.open = userChoice === undefined ? node.status === "running" : userChoice;
+    details.innerHTML = "";
+
+    const summary = document.createElement("summary");
+    summary.className = "step-feed-summary";
+    const title = document.createElement("span");
+    title.className = "step-feed-title";
+    title.textContent = stepFeedTitle(node);
+    const badge = document.createElement("span");
+    badge.className = `badge badge-${node.status || "idle"}`;
+    badge.textContent = node.status || "idle";
+    const meta = document.createElement("span");
+    meta.className = "step-feed-meta";
+    meta.textContent = formatStepDuration(node);
+    summary.append(title, badge, meta);
+    details.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "step-feed-body";
+
+    if (node.summary) {
+      const p = document.createElement("div");
+      p.className = "step-feed-node-summary";
+      p.textContent = node.summary;
+      body.appendChild(p);
+    }
+
+    if (node.input && Object.keys(node.input).length) {
+      body.appendChild(this._wireNested(node.id, "input", renderStepInput(node.input)));
+    }
+
+    const conversation = node.conversation || [];
+    if (conversation.length) {
+      const section = document.createElement("div");
+      section.className = "step-feed-section";
+      const label = document.createElement("div");
+      label.className = "step-feed-section-title";
+      label.textContent = `Conversation (${conversation.length})`;
+      section.appendChild(label);
+      conversation.forEach((evt, idx) => {
+        const key = `conversation:${idx}:${evt.timestamp || ""}:${evt.type || ""}:${evt.author || ""}`;
+        section.appendChild(this._wireNested(node.id, key, renderStepConversationEvent(evt)));
+      });
+      body.appendChild(section);
+    }
+
+    const toolCalls = node.tool_calls || [];
+    if (toolCalls.length) {
+      const section = document.createElement("div");
+      section.className = "step-feed-section";
+      const label = document.createElement("div");
+      label.className = "step-feed-section-title";
+      label.textContent = `Tool calls (${toolCalls.length})`;
+      section.appendChild(label);
+      toolCalls.forEach((tc, idx) => {
+        const key = `tool:${idx}:${tc.name || ""}:${tc.start_time || ""}`;
+        section.appendChild(this._wireNested(node.id, key, renderStepToolCall(tc)));
+      });
+      body.appendChild(section);
+    }
+
+    const artifacts = node.artifacts || [];
+    if (artifacts.length) {
+      const section = document.createElement("div");
+      section.className = "step-feed-section";
+      const label = document.createElement("div");
+      label.className = "step-feed-section-title";
+      label.textContent = "Artifacts";
+      const list = document.createElement("ul");
+      list.className = "detail-artifacts step-feed-artifacts";
+      artifacts.forEach((artifact) => {
+        const li = document.createElement("li");
+        li.textContent = artifact.split("/").pop();
+        li.title = artifact;
+        list.appendChild(li);
+      });
+      section.append(label, list);
+      body.appendChild(section);
+    }
+
+    if (!body.childElementCount) {
+      const empty = document.createElement("div");
+      empty.className = "step-feed-empty";
+      empty.textContent = "Waiting for step executor events…";
+      body.appendChild(empty);
+    }
+
+    details.appendChild(body);
   }
 }
 
@@ -833,6 +1041,7 @@ class ExecutionPlanView {
   }
 }
 
+const stepExecutionFeed = new StepExecutionFeed();
 const agentGraph = new AgentGraphView("agent-graph");
 const planGraph = new ExecutionPlanView("plan-graph-canvas");
 
@@ -1154,6 +1363,10 @@ function _isValidIdentity(s) {
 }
 
 function showLoginModal() {
+  if (state.deploymentMode !== "server") {
+    hideLoginModal();
+    return;
+  }
   loginModal.classList.remove("hidden");
   loginView.classList.remove("hidden");
   registerView.classList.add("hidden");
@@ -1167,7 +1380,18 @@ function showLoginModal() {
   loginInput.focus();
 }
 
-function logout() {
+async function logout() {
+  const userId = state.userId;
+  const deploymentMode = state.deploymentMode;
+  if (deploymentMode === "server" && userId) {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+    } catch (_) { /* best-effort worker shutdown */ }
+  }
   state.userId = "";
   state.displayName = "";
   state.activeSessionUserId = "";
@@ -1176,8 +1400,10 @@ function logout() {
   localStorage.removeItem("mat_userId");
   localStorage.removeItem("mat_displayName");
   localStorage.removeItem("mat_sessionId");
+  localStorage.removeItem("mat_deploymentMode");
   userDisplay.textContent = "—";
   chatArea.innerHTML = "";
+  stepExecutionFeed.reset();
   sessionListEl.innerHTML = '<li class="empty">Sign in to see sessions</li>';
   renderSessionFilesTree([]);
   clearCurrentUploads();
@@ -1229,11 +1455,13 @@ function _applySession(result) {
   state.sessionReady = false;
   state.isAdmin = Boolean(result.is_admin);
   loginUuidDisplay.textContent = `UUID: ${result.user_id}`;
+  localStorage.setItem("mat_deploymentMode", state.deploymentMode);
   localStorage.setItem("mat_userId", result.user_id);
   localStorage.setItem("mat_displayName", result.display_name);
   localStorage.setItem("mat_sessionId", state.sessionId);
   sessionIdEl.textContent = state.sessionId;
   chatArea.innerHTML = "";
+  stepExecutionFeed.reset();
   renderSessionFilesTree([]);
   clearCurrentUploads();
   agentGraph.reset();
@@ -1341,6 +1569,7 @@ settingsLogoutBtn.addEventListener("click", () => logout());
 
 const savePasswordBtn = document.getElementById("settings-save-password-btn");
 const passwordMsg = document.getElementById("settings-password-msg");
+const settingsPasswordSection = savePasswordBtn?.parentElement;
 
 async function savePassword() {
   const oldPw = document.getElementById("settings-current-password").value || null;
@@ -1373,7 +1602,36 @@ async function savePassword() {
 
 savePasswordBtn.addEventListener("click", savePassword);
 
-// On load: in local mode auto-login as "user"; in server mode show login modal.
+function clearStoredIdentity() {
+  localStorage.removeItem("mat_userId");
+  localStorage.removeItem("mat_displayName");
+  localStorage.removeItem("mat_sessionId");
+}
+
+function applyLocalIdentity(resetSession = false) {
+  state.deploymentMode = "local";
+  state.userId = "user";
+  state.displayName = "user";
+  state.activeSessionUserId = "user";
+  state.isAdmin = false;
+  state.sessionReady = false;
+  if (resetSession) {
+    state.sessionId = `session-${Math.floor(Date.now() / 1000)}`;
+    localStorage.setItem("mat_sessionId", state.sessionId);
+  }
+  localStorage.setItem("mat_deploymentMode", "local");
+  localStorage.setItem("mat_userId", "user");
+  localStorage.setItem("mat_displayName", "user");
+}
+
+function hideLocalAuthControls() {
+  if (editUserBtn) editUserBtn.style.display = "none";
+  if (logoutBtn) logoutBtn.style.display = "none";
+  if (settingsLogoutBtn) settingsLogoutBtn.style.display = "none";
+  if (settingsPasswordSection) settingsPasswordSection.style.display = "none";
+}
+
+// On load: in local mode force passwordless "user"; in server mode require server auth.
 (async () => {
   let serverMode = "local";
   try {
@@ -1384,29 +1642,18 @@ savePasswordBtn.addEventListener("click", savePassword);
     }
   } catch (_) { /* server not up yet — assume local */ }
 
+  state.deploymentMode = serverMode === "server" ? "server" : "local";
+  const storedMode = localStorage.getItem("mat_deploymentMode") || "";
   const storedId = localStorage.getItem("mat_userId") || "";
 
-  if (serverMode === "local") {
-    // Auto-login as the legacy "user" identity — no password required.
-    if (!storedId || storedId === "user") {
-      try {
-        const resp = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ display_name: "user" }),
-        });
-        if (resp.ok) {
-          const result = await resp.json();
-          _applySession(result);
-          localStorage.setItem("mat_userId", result.user_id);
-          localStorage.setItem("mat_displayName", result.display_name);
-        }
-      } catch (_) { /* ignore */ }
-    }
-    // Hide auth UI elements that are irrelevant in local mode.
-    if (editUserBtn) editUserBtn.style.display = "none";
-    if (logoutBtn) logoutBtn.style.display = "none";
-    if (settingsLogoutBtn) settingsLogoutBtn.style.display = "none";
+  if (state.deploymentMode === "local") {
+    hideLocalAuthControls();
+    applyLocalIdentity(storedMode === "server" || (storedId && storedId !== "user"));
+    hideLoginModal();
+  } else if ((storedMode && storedMode !== "server") || (!storedMode && storedId === "user")) {
+    clearStoredIdentity();
+    showLoginModal();
+    return;
   } else if (!storedId) {
     showLoginModal();
     return;
@@ -1554,6 +1801,7 @@ async function deleteSession(sessionId) {
       localStorage.setItem("mat_sessionId", state.sessionId);
       sessionIdEl.textContent = state.sessionId;
       chatArea.innerHTML = "";
+      stepExecutionFeed.reset();
       renderSessionFilesTree([]);
       clearCurrentUploads();
       agentGraph.reset();
@@ -1626,6 +1874,10 @@ function createUserAvatarEl() {
 
 function scrollToBottom() {
   chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function isChatNearBottom() {
+  return chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 80;
 }
 
 function addMessage(role, content) {
@@ -1762,6 +2014,72 @@ function addAgentTimelineMessage(timeline, shownPlotPaths = null) {
   chatArea.appendChild(outer);
   renderTimeline(inner, timeline, shownPlotPaths);
   return inner;
+}
+
+function formatStepDuration(node) {
+  if (!node.start_time) return "—";
+  if (!node.end_time) return "running…";
+  const secs = ((new Date(node.end_time) - new Date(node.start_time)) / 1000).toFixed(1);
+  return `${secs}s`;
+}
+
+function stepFeedTitle(node) {
+  const input = node.input || {};
+  const label = node.label || input.node_id || node.id;
+  const action = input.action ? ` — ${input.action}` : "";
+  return `${label}${action}`;
+}
+
+function renderStepInput(input) {
+  const details = document.createElement("details");
+  details.className = "step-feed-nested";
+  const summary = document.createElement("summary");
+  summary.textContent = "Input";
+  details.appendChild(summary);
+  const pre = document.createElement("pre");
+  pre.className = "json-block";
+  pre.textContent = JSON.stringify(input, null, 2);
+  details.appendChild(pre);
+  return details;
+}
+
+function renderStepConversationEvent(evt) {
+  const details = document.createElement("details");
+  details.className = `timeline-${evt.type} step-feed-nested`;
+  const summary = document.createElement("summary");
+  const icon = evt.type === "thought" ? "💭" : evt.type === "text" ? "💬" : evt.type === "function_call" ? "🔧" : "↩";
+  summary.textContent = `${icon} [${evt.author || "step_executor"}] ${evt.type || "event"}`;
+  details.appendChild(summary);
+  const pre = document.createElement("pre");
+  pre.className = "json-block";
+  pre.textContent = evt.content || "";
+  details.appendChild(pre);
+  return details;
+}
+
+function renderStepToolCall(tc) {
+  const details = document.createElement("details");
+  details.className = "timeline-function-call step-feed-nested";
+  const dur = tc.start_time && tc.end_time
+    ? ` (${((new Date(tc.end_time) - new Date(tc.start_time)) / 1000).toFixed(1)}s)`
+    : "";
+  const summary = document.createElement("summary");
+  summary.textContent = `🔧 ${tc.name || "tool"}${dur}`;
+  details.appendChild(summary);
+  if (tc.args_summary) {
+    const pre = document.createElement("pre");
+    pre.className = "json-block";
+    pre.textContent = tc.args_summary;
+    details.appendChild(pre);
+  }
+  if (tc.result_summary) {
+    const pre = document.createElement("pre");
+    pre.className = "json-block";
+    pre.style.borderTop = "1px solid rgba(255,255,255,0.06)";
+    pre.textContent = `→ ${tc.result_summary}`;
+    details.appendChild(pre);
+  }
+  return details;
 }
 
 // Classify a file path as "structure", "image", or "artifact" by extension/name.
@@ -1914,6 +2232,108 @@ function renderSessionFilesTree(files) {
   const root = _buildFileTree(files, prefix);
   _renderTreeNode(root, ul, 0);
 }
+
+function setWorkspaceCliOpen(open) {
+  workspaceCli?.classList.toggle("hidden", !open);
+  workspaceCliToggle?.classList.toggle("is-active", open);
+  workspaceCliToggle?.setAttribute("aria-expanded", String(open));
+  if (open) {
+    startWorkspaceTerminal();
+  } else {
+    stopWorkspaceTerminal();
+  }
+}
+
+function terminalWebSocketUrl() {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const params = new URLSearchParams();
+  if (state.deploymentMode === "server" && state.userId) params.set("user_id", state.userId);
+  const qs = params.toString();
+  return `${protocol}//${window.location.host}/api/workspace/terminal${qs ? `?${qs}` : ""}`;
+}
+
+function resizeWorkspaceTerminal() {
+  if (!workspaceTerminal || !workspaceTerminalFit || !workspaceTerminalSocket) return;
+  try {
+    workspaceTerminalFit.fit();
+    if (workspaceTerminalSocket.readyState === WebSocket.OPEN) {
+      workspaceTerminalSocket.send(JSON.stringify({
+        type: "resize",
+        rows: workspaceTerminal.rows,
+        cols: workspaceTerminal.cols,
+      }));
+    }
+  } catch (_) { /* terminal may not be visible yet */ }
+}
+
+function startWorkspaceTerminal() {
+  if (!workspaceTerminalEl) return;
+  if (workspaceTerminalSocket && workspaceTerminalSocket.readyState === WebSocket.OPEN) {
+    workspaceTerminal?.focus();
+    resizeWorkspaceTerminal();
+    return;
+  }
+  workspaceTerminalEl.innerHTML = "";
+  workspaceTerminal = new Terminal({
+    cursorBlink: true,
+    convertEol: true,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+    fontSize: 12,
+    theme: {
+      background: "#030712",
+      foreground: "#d1fae5",
+      cursor: "#7dd3fc",
+      selectionBackground: "#1e40af88",
+    },
+  });
+  workspaceTerminalFit = new FitAddon();
+  workspaceTerminal.loadAddon(workspaceTerminalFit);
+  workspaceTerminal.open(workspaceTerminalEl);
+  workspaceTerminal.write("\r\nStarting workspace terminal...\r\n");
+  workspaceTerminalFit.fit();
+  workspaceTerminal.focus();
+
+  workspaceTerminalSocket = new WebSocket(terminalWebSocketUrl());
+  workspaceTerminalSocket.addEventListener("open", () => {
+    resizeWorkspaceTerminal();
+  });
+  workspaceTerminalSocket.addEventListener("message", (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      if (message.type === "output") workspaceTerminal.write(message.data || "");
+    } catch (_) {
+      workspaceTerminal.write(String(event.data || ""));
+    }
+  });
+  workspaceTerminalSocket.addEventListener("close", () => {
+    workspaceTerminal?.write("\r\n[terminal closed]\r\n");
+  });
+  workspaceTerminalSocket.addEventListener("error", () => {
+    workspaceTerminal?.write("\r\n[terminal connection error]\r\n");
+  });
+  workspaceTerminal.onData((data) => {
+    if (workspaceTerminalSocket?.readyState === WebSocket.OPEN) {
+      workspaceTerminalSocket.send(JSON.stringify({ type: "input", data }));
+    }
+  });
+}
+
+function stopWorkspaceTerminal() {
+  if (workspaceTerminalSocket) {
+    workspaceTerminalSocket.close();
+    workspaceTerminalSocket = null;
+  }
+  workspaceTerminal?.dispose();
+  workspaceTerminal = null;
+  workspaceTerminalFit = null;
+  if (workspaceTerminalEl) workspaceTerminalEl.innerHTML = "";
+}
+
+workspaceCliToggle?.addEventListener("click", () => {
+  setWorkspaceCliOpen(workspaceCli?.classList.contains("hidden"));
+});
+
+window.addEventListener("resize", resizeWorkspaceTerminal);
 
 async function refreshSessionFiles() {
   if (!state.sessionId || !state.sessionReady) return;
@@ -2097,6 +2517,8 @@ async function uploadFilesToSession(fileList) {
 async function createSession() {
   state.activeSessionUserId = state.userId;
   const url = `/apps/${APP_NAME}/users/${state.userId}/sessions/${state.sessionId}`;
+  const defaultWorkdir = (state.defaultWorkdir || "").trim();
+  const sessionWorkdir = state.customWorkdir || defaultWorkdir;
   try {
     const resp = await fetch(url, {
       method: "POST",
@@ -2104,7 +2526,7 @@ async function createSession() {
       body: JSON.stringify({
         ...(state.agentMode !== "normal" ? { agent_mode: state.agentMode } : {}),
         ...(state.agentMode === "bench" ? { benchmark_mode: true } : {}),
-        ...(state.customWorkdir ? { custom_workdir: state.customWorkdir } : {}),
+        ...(sessionWorkdir ? { custom_workdir: sessionWorkdir } : {}),
       }),
     });
     if (!resp.ok) {
@@ -2253,6 +2675,7 @@ async function loadSession(sessionId) {
 
     // Rebuild chat from server-canonical state
     chatArea.innerHTML = "";
+    stepExecutionFeed.reset();
 
     // First pass: collect all functionResponses keyed by ID for cross-event matching
     const frById = {};
@@ -2790,6 +3213,7 @@ async function _doNewSession(customWorkdir) {
   localStorage.setItem("mat_sessionId", state.sessionId);
   sessionIdEl.textContent = state.sessionId;
   chatArea.innerHTML = "";
+  stepExecutionFeed.reset();
   renderSessionFilesTree([]);
   clearCurrentUploads();
   agentGraph.reset();
@@ -3122,6 +3546,7 @@ async function loadSettingsData() {
 
 async function saveSettings() {
   const username = settingsUsername.value.trim();
+  const nextDefaultWorkdir = document.getElementById("settings-default-workdir")?.value?.trim() || "";
   const extraSkills = Array.from(
     skillsChecklist.querySelectorAll(".skill-checkbox:not(:disabled)")
   )
@@ -3157,7 +3582,7 @@ async function saveSettings() {
           planning: { extra_skills: extraSkills },
           skills: { disabled: disabledSkills },
           user: username ? { name: username } : undefined,
-          workspace: { default_workdir: document.getElementById("settings-default-workdir")?.value?.trim() || "" },
+          workspace: { default_workdir: nextDefaultWorkdir },
         }),
       }),
     ];
@@ -3176,10 +3601,11 @@ async function saveSettings() {
       if (!res.ok) throw new Error(await res.text());
     }
 
-    if (username && username !== state.displayName) {
+    if (state.deploymentMode === "server" && username && username !== state.displayName) {
       closeSettingsModal();
       await applyLogin(username, null);
     }
+    state.defaultWorkdir = nextDefaultWorkdir;
     settingsStatus.textContent = "Saved ✓";
     setTimeout(() => { settingsStatus.textContent = ""; }, 2000);
   } catch (err) {
@@ -3195,7 +3621,8 @@ async function _pollBackendReady(maxAttempts = 30, intervalMs = 2000) {
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
     try {
-      const res = await fetch("/api/backend-status");
+      const userQuery = state.userId ? `?user_id=${encodeURIComponent(state.userId)}` : "";
+      const res = await fetch(`/api/backend-status${userQuery}`);
       if (res.ok) {
         const data = await res.json();
         if (data.ready) return;
@@ -3211,7 +3638,8 @@ async function restartBackend() {
   settingsRestartBtn.textContent = "Restarting…";
   settingsStatus.textContent = "Restarting backend…";
   try {
-    const res = await fetch("/api/restart-backend", { method: "POST" });
+    const userQuery = state.userId ? `?user_id=${encodeURIComponent(state.userId)}` : "";
+    const res = await fetch(`/api/restart-backend${userQuery}`, { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
     await _pollBackendReady();
     settingsStatus.textContent = "Backend restarted ✓";
