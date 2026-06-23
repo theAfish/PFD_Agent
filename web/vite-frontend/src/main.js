@@ -2789,13 +2789,6 @@ async function loadSession(sessionId) {
     stepExecutionFeed.reset();
     let msgIdx = 0;
 
-    // Show session summary banner if available, clear otherwise
-    if (sessionData.summary) {
-      state.sessionSummaries[sessionId] = sessionData.summary;
-      state.summaryGeneratedFor.add(sessionId);
-    }
-    renderSessionBanner(sessionData.summary || "");
-
     // Fetch graph data upfront so we can merge events and step cards
     // into a single chronological timeline.
     let graphNodes = [];
@@ -2814,23 +2807,21 @@ async function loadSession(sessionId) {
     } catch (_) {}
 
     // Build a unified timeline: events and step cards sorted by timestamp.
-    // Convert event timestamps to ms (ADK stores them as seconds float).
-    // If timestamps are missing or unreliable, fall back to sequential order.
     const timeline = [];
-    let eventTsValid = true;
 
     events.forEach((event, idx) => {
+      // ADK event.timestamp is a float in seconds; convert to ms for comparison
+      // with step card start_time (which is an ISO string → ms via Date.getTime).
       let ts;
       if (event.timestamp) {
         const raw = Number(event.timestamp);
-        // Heuristic: values < 1e12 are seconds, >= 1e12 are already ms
-        ts = raw < 1e12 ? raw * 1000 : raw;
-        // Sanity check: timestamp should be between 2020-2100
-        if (ts < 1577836800000 || ts > 4102444800000) eventTsValid = false;
+        ts = raw < 1e12 ? raw * 1000 : raw; // seconds → ms if needed
+      } else if (event.createTime) {
+        ts = new Date(event.createTime).getTime();
       } else {
-        eventTsValid = false;
+        ts = idx;
       }
-      timeline.push({ type: "event", data: event, ts: ts ?? idx, order: idx });
+      timeline.push({ type: "event", data: event, ts, order: idx });
     });
 
     graphNodes.forEach((node, idx) => {
@@ -2838,11 +2829,7 @@ async function loadSession(sessionId) {
       timeline.push({ type: "step", data: node, ts, order: 1e9 + idx });
     });
 
-    // Only sort by timestamp if event timestamps are valid; otherwise
-    // preserve the original order (events first, then step cards).
-    if (eventTsValid && graphNodes.length > 0) {
-      timeline.sort((a, b) => a.ts - b.ts || a.order - b.order);
-    }
+    timeline.sort((a, b) => a.ts - b.ts || a.order - b.order);
 
     // First pass: collect all functionResponses keyed by ID for cross-event matching
     const frById = {};
