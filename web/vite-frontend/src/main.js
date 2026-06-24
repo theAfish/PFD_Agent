@@ -592,16 +592,11 @@ class AgentGraphView {
         s.textContent = `🔧 ${tc.name}${dur}`;
         d.appendChild(s);
         if (tc.args_summary) {
-          const pre = document.createElement("pre");
-          pre.className = "json-block";
-          pre.textContent = tc.args_summary;
-          d.appendChild(pre);
+          d.appendChild(createJsonBlock(tc.args_summary));
         }
         if (tc.result_summary) {
-          const pre = document.createElement("pre");
-          pre.className = "json-block";
+          const pre = createJsonBlock(`→ ${tc.result_summary}`);
           pre.style.borderTop = "1px solid rgba(255,255,255,0.06)";
-          pre.textContent = `→ ${tc.result_summary}`;
           d.appendChild(pre);
         }
         this._detailToolcalls.appendChild(d);
@@ -622,10 +617,7 @@ class AgentGraphView {
         const icon = evt.type === "thought" ? "💭" : evt.type === "text" ? "💬" : evt.type === "function_call" ? "🔧" : "↩";
         s.textContent = `${icon} [${evt.author}] ${evt.type}`;
         d.appendChild(s);
-        const pre = document.createElement("pre");
-        pre.className = "json-block";
-        pre.textContent = evt.content;
-        d.appendChild(pre);
+        d.appendChild(createJsonBlock(evt.content));
         this._detailConversation.appendChild(d);
       });
       document.getElementById("detail-conversation-row").style.display = "";
@@ -846,6 +838,9 @@ class StepExecutionFeed {
         const key = `conversation:${idx}:${evt.timestamp || ""}:${evt.type || ""}:${evt.author || ""}`;
         sectionDetails.appendChild(this._wireNested(node.id, key, renderStepConversationEvent(evt)));
       });
+      sectionDetails.addEventListener("toggle", () => {
+        sectionSummary.classList.toggle("open", sectionDetails.open);
+      });
       section.appendChild(this._wireNested(node.id, "section:conversation", sectionDetails));
       body.appendChild(section);
     }
@@ -863,6 +858,9 @@ class StepExecutionFeed {
       toolCalls.forEach((tc, idx) => {
         const key = `tool:${idx}:${tc.name || ""}:${tc.start_time || ""}`;
         sectionDetails.appendChild(this._wireNested(node.id, key, renderStepToolCall(tc)));
+      });
+      sectionDetails.addEventListener("toggle", () => {
+        sectionSummary.classList.toggle("open", sectionDetails.open);
       });
       section.appendChild(this._wireNested(node.id, "section:toolcalls", sectionDetails));
       body.appendChild(section);
@@ -1940,6 +1938,92 @@ function renderMarkdown(text) {
   return html;
 }
 
+// Unescape common escape sequences in text content.
+// Converts literal \n, \t, \r, \\ to actual characters.
+function unescapeText(text) {
+  if (!text) return "";
+  return text
+    .replace(/\\\\/g, "\x00")    // protect literal backslashes
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\r/g, "\r")
+    .replace(/\\"/g, '"')
+    .replace(/\x00/g, "\\");     // restore literal backslashes
+}
+
+// Cached character widths for wrap calculation (ASCII and CJK)
+let _asciiWidth = 0;
+let _cjkWidth = 0;
+function getCharWidths() {
+  if (_asciiWidth) return { ascii: _asciiWidth, cjk: _cjkWidth };
+  const s = document.createElement("span");
+  s.style.cssText = "position:absolute;visibility:hidden;font:14px 'Courier New',Consolas,monospace;white-space:pre;";
+  document.body.appendChild(s);
+  s.textContent = "x";
+  _asciiWidth = s.getBoundingClientRect().width;
+  s.textContent = "中";
+  _cjkWidth = s.getBoundingClientRect().width;
+  document.body.removeChild(s);
+  return { ascii: _asciiWidth, cjk: _cjkWidth };
+}
+
+const CJK_RE = /[一-鿿㐀-䶿豈-﫿　-〿＀-￯]/;
+function measureLine(line) {
+  const { ascii, cjk } = getCharWidths();
+  let w = 0;
+  for (const ch of line) {
+    w += CJK_RE.test(ch) ? cjk : ascii;
+  }
+  return w;
+}
+
+// Create a <pre class="json-block"> with unescaped content.
+// Strips leading/trailing { } from JSON-like strings for cleaner display.
+// Uses ResizeObserver to adapt wrap markers to container width.
+function createJsonBlock(content) {
+  const pre = document.createElement("pre");
+  pre.className = "json-block";
+  let rawText = unescapeText(content);
+  rawText = rawText.replace(/^\{\s*/, "").replace(/\s*\}$/, "");
+  pre.dataset.raw = rawText;
+  applyWrapMarkers(pre);
+  const ro = new ResizeObserver(() => applyWrapMarkers(pre));
+  ro.observe(pre);
+  return pre;
+}
+
+function applyWrapMarkers(pre) {
+  const raw = pre.dataset.raw;
+  if (!raw) return;
+  const containerW = pre.clientWidth - 16; // subtract padding
+  if (containerW <= 0) return;
+  const { ascii, cjk } = getCharWidths();
+  const markerW = ascii * 3; // " ↵" approx 3 ascii chars wide
+  const lines = raw.split("\n");
+  const out = [];
+  for (const line of lines) {
+    const lineW = measureLine(line);
+    if (lineW <= containerW) {
+      out.push(line);
+    } else {
+      // Split line by pixel width
+      let w = 0, start = 0;
+      for (let i = 0; i < line.length; i++) {
+        const chW = CJK_RE.test(line[i]) ? cjk : ascii;
+        if (w + chW > containerW - markerW) {
+          out.push(line.slice(start, i) + " ↵");
+          start = i;
+          w = chW;
+        } else {
+          w += chW;
+        }
+      }
+      if (start < line.length) out.push(line.slice(start));
+    }
+  }
+  pre.textContent = out.join("\n");
+}
+
 const AGENT_AVATAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="rgba(125,211,252,0.9)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="8" width="18" height="11" rx="2"/>
   <path d="M8 8V6a4 4 0 0 1 8 0v2"/>
@@ -2054,23 +2138,17 @@ function renderTimeline(container, timeline, shownPlotPaths = null) {
       const details = document.createElement("details");
       details.className = "timeline-function-call";
       const summary = document.createElement("summary");
-      summary.textContent = `🔧 ${item.name}`;
+      summary.innerHTML = `<span class="timeline-badge badge-in">IN</span> ${item.name}`;
       details.appendChild(summary);
-      const pre = document.createElement("pre");
-      pre.className = "json-block";
-      pre.textContent = JSON.stringify(item.args, null, 2);
-      details.appendChild(pre);
+      details.appendChild(createJsonBlock(JSON.stringify(item.args, null, 2)));
       container.appendChild(details);
     } else if (item.type === "function_response") {
       const details = document.createElement("details");
       details.className = "timeline-function-response";
       const summary = document.createElement("summary");
-      summary.textContent = `📥 ${item.name}`;
+      summary.innerHTML = `<span class="timeline-badge badge-out">OUT</span> ${item.name}`;
       details.appendChild(summary);
-      const pre = document.createElement("pre");
-      pre.className = "json-block";
-      pre.textContent = JSON.stringify(item.response, null, 2);
-      details.appendChild(pre);
+      details.appendChild(createJsonBlock(JSON.stringify(item.response, null, 2)));
       container.appendChild(details);
       for (const plotPath of getPlotPaths(item.response)) {
         if (
@@ -2147,10 +2225,7 @@ function renderStepInput(input) {
   const summary = document.createElement("summary");
   summary.textContent = "Input";
   details.appendChild(summary);
-  const pre = document.createElement("pre");
-  pre.className = "json-block";
-  pre.textContent = JSON.stringify(input, null, 2);
-  details.appendChild(pre);
+  details.appendChild(createJsonBlock(JSON.stringify(input, null, 2)));
   return details;
 }
 
@@ -2161,10 +2236,7 @@ function renderStepConversationEvent(evt) {
   const icon = evt.type === "thought" ? "💭" : evt.type === "text" ? "💬" : evt.type === "function_call" ? "🔧" : "↩";
   summary.textContent = `${icon} [${evt.author || "step_executor"}] ${evt.type || "event"}`;
   details.appendChild(summary);
-  const pre = document.createElement("pre");
-  pre.className = "json-block";
-  pre.textContent = evt.content || "";
-  details.appendChild(pre);
+  details.appendChild(createJsonBlock(evt.content));
   return details;
 }
 
@@ -2178,16 +2250,11 @@ function renderStepToolCall(tc) {
   summary.textContent = `🔧 ${tc.name || "tool"}${dur}`;
   details.appendChild(summary);
   if (tc.args_summary) {
-    const pre = document.createElement("pre");
-    pre.className = "json-block";
-    pre.textContent = tc.args_summary;
-    details.appendChild(pre);
+    details.appendChild(createJsonBlock(tc.args_summary));
   }
   if (tc.result_summary) {
-    const pre = document.createElement("pre");
-    pre.className = "json-block";
+    const pre = createJsonBlock(`→ ${tc.result_summary}`);
     pre.style.borderTop = "1px solid rgba(255,255,255,0.06)";
-    pre.textContent = `→ ${tc.result_summary}`;
     details.appendChild(pre);
   }
   return details;
