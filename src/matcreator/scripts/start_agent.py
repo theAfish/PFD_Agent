@@ -37,6 +37,8 @@ import yaml
 
 import click
 
+from matcreator.ports import get_adk_port
+
 
 _MATCREATOR_HOME = Path(os.environ.get("MATCREATOR_HOME", "~/.matcreator")).expanduser()
 _CONFIG_PATH = _MATCREATOR_HOME / "config.yaml"
@@ -77,13 +79,16 @@ def _make_agent_loader():
 
 def _start_adk_server(
     host: str,
-    port: int,
+    port: int | None,
     log_level: str,
     web_ui: bool,
     reload_agents: bool = False,
     reload: bool = False,
 ) -> None:
     """Start the ADK server programmatically with controlled session storage."""
+    if port is None:
+        port = get_adk_port()
+
     import uvicorn
     from google.adk.cli.fast_api import get_fast_api_app
 
@@ -120,8 +125,8 @@ def _start_adk_server(
 _shared_options = [
     click.option("--host", default="127.0.0.1", show_default=True,
                  help="Binding host for the ADK server."),
-    click.option("--port", default=8000, show_default=True, type=int,
-                 help="Port for the ADK server."),
+    click.option("--port", type=int, default=None,
+                 help="Port for the ADK server (default: resolved from config/MATCREATOR_ADK_PORT env)."),
     click.option("--workspace", default=None, metavar="DIR",
                  help="Override the workspace root directory (also settable via MATCLAW_WORKSPACE)."),
     click.option("--log-level",
