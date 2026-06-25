@@ -1,8 +1,8 @@
 site_name: MatCreator
 site_description: Agentic AI platform for computational materials science
-site_url: https://nlz25.github.io/PFD-Agent/
-repo_url: https://github.com/nlz25/PFD-Agent
-repo_name: nlz25/PFD-Agent
+site_url: https://ai4ms.github.io/MatCreator/
+repo_url: https://github.com/AI4MS/MatCreator
+repo_name: AI4MS/MatCreator
 edit_uri: edit/main/docs/
 
 docs_dir: docs
