@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v2.2.0 (2026-06-25)
+
+### Bug Fixes
+
+- Interleave step cards with messages via unified timeline in loadSession
+  ([`38ca1c7`](https://github.com/nlz25/PFD_Agent/commit/38ca1c7c61c5dd8eb33e418b42adc1ca48452a21))
+
+- Remove the tester agent route
+  ([`45af7d6`](https://github.com/nlz25/PFD_Agent/commit/45af7d64a50d57926be5d59599efe10c1ee226d5))
+
+- Restore unified timeline interleaving, remove session summary refs
+  ([`60713fb`](https://github.com/nlz25/PFD_Agent/commit/60713fb8dea40ae390a84d6b8f74cc62d1d85263))
+
+- SSE stream parsing, ASCII art rendering, table styles, and timeline ordering
+  ([`05534ee`](https://github.com/nlz25/PFD_Agent/commit/05534eebe3ea57b7a7ffbb1210497d8fedc4e84a))
+
+### Features
+
+- Json-block escape handling, wrap markers, and IN/OUT badges
+  ([`66d6025`](https://github.com/nlz25/PFD_Agent/commit/66d60259b9ad4062d8b580a3d9e88df913b1b2b0))
+
+- **frontend**: Improve plan graph layout, collapsible sections, and node ordering
+  ([`ad3acae`](https://github.com/nlz25/PFD_Agent/commit/ad3acae6d6e39d5eb827516d9d8e7ad876fa48ae))
+
+
 ## v2.1.0 (2026-06-22)
 
 ### Bug Fixes
