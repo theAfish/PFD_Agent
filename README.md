@@ -60,8 +60,6 @@ Start an interactive session from the workspace you want MatCreator to use
 matcreator chat --workspace .
 ```
 
-Detailed installation, configuration, and deployment instructions will live on the GitHub Pages documentation site: [nlz25.github.io/PFD-Agent](https://nlz25.github.io/PFD-Agent/).
-
 ---
 
 ## Launch
@@ -94,12 +92,7 @@ By default, `matcreator chat` starts in Flash mode for fast direct interaction. 
 
 ## Documentation
 
-| Topic | Description |
-|-------|-------------|
-| Documentation Site | [nlz25.github.io/PFD-Agent](https://nlz25.github.io/PFD-Agent/) |
-| Getting Started | [Quick setup and configuration](https://nlz25.github.io/PFD-Agent/getting-started/) |
-| Know-Do Graph | [Knowledge graph guide](https://nlz25.github.io/PFD-Agent/knowledge_graph/) |
-| Deployment | [Deployment and operations guide](https://nlz25.github.io/PFD-Agent/deployment/) |
+Detailed installation, configuration, and deployment instructions will live on the GitHub Pages documentation site: [nlz25.github.io/PFD-Agent](https://nlz25.github.io/PFD-Agent/).
 
 ---
 
