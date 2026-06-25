@@ -27,7 +27,7 @@ mkdocs build --strict
 The published site is expected at:
 
 ```text
-https://nlz25.github.io/PFD-Agent/
+https://ai4ms.github.io/MatCreator/
 ```
 
 In the GitHub repository settings, set `Settings -> Pages -> Build and deployment -> Source` to `GitHub Actions`.

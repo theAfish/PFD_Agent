@@ -36,7 +36,7 @@ Build workflows, generate structures, run simulations, and continuously acquire 
 ### Installation
 
 ```bash
-git clone https://github.com/nlz25/PFD-Agent.git
+git clone https://github.com/AI4MS/MatCreator.git
 cd MatCreator
 
 pip install uv
@@ -92,7 +92,7 @@ By default, `matcreator chat` starts in Flash mode for fast direct interaction. 
 
 ## Documentation
 
-Detailed installation, configuration, and deployment instructions will live on the GitHub Pages documentation site: [nlz25.github.io/PFD-Agent](https://nlz25.github.io/PFD-Agent/).
+Detailed installation, configuration, and deployment instructions will live on the GitHub Pages documentation site: [ai4ms.github.io/MatCreator](https://ai4ms.github.io/MatCreator/).
 
 ---
 

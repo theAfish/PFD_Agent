@@ -5,8 +5,8 @@ This page gives the fastest path from a fresh checkout to a running MatCreator s
 ## Installation
 
 ```bash
-git clone https://github.com/nlz25/PFD-Agent.git
-cd PFD-Agent
+git clone https://github.com/AI4MS/MatCreator.git
+cd MatCreator
 
 pip install uv
 uv venv .venv --python 3.12
